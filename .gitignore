@@ -2,6 +2,9 @@
 bin/
 obj/
 
+# Publish outputs
+artifacts/
+
 # User-specific files
 *.user
 *.suo
