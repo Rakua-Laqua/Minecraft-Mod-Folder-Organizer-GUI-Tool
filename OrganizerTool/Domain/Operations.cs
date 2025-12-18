@@ -6,6 +6,7 @@ public enum OperationKind
     MoveWithOverwrite = 1,
     DeletePath = 2,
     BackupZip = 3,
+    ExtractZipEntry = 4,
 }
 
 public interface IOperation
@@ -36,6 +37,12 @@ public sealed record BackupZipOperation(string SourceDirectory, string ZipPath) 
 {
     public OperationKind Kind => OperationKind.BackupZip;
     public string Describe() => $"ZIP    {SourceDirectory} -> {ZipPath}";
+}
+
+public sealed record ExtractZipEntryOperation(string ZipPath, string EntryPath, string DestinationPath) : IOperation
+{
+    public OperationKind Kind => OperationKind.ExtractZipEntry;
+    public string Describe() => $"EXTRACT {ZipPath}!{EntryPath} -> {DestinationPath}";
 }
 
 public sealed class ExecutionPlan

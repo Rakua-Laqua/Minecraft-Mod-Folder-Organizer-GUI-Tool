@@ -1,5 +1,11 @@
 namespace OrganizerTool.Models;
 
+public enum ModSourceType
+{
+    Directory = 0,
+    Jar = 1,
+}
+
 public enum MultiLangMode
 {
     FirstOnly = 0,

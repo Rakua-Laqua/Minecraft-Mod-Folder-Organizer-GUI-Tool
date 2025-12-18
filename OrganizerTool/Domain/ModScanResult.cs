@@ -1,7 +1,11 @@
+using OrganizerTool.Models;
+
 namespace OrganizerTool.Domain;
 
 public sealed class ModScanResult
 {
+    public ModSourceType SourceType { get; init; } = ModSourceType.Directory;
+
     public required string ModName { get; init; }
     public required string ModPath { get; init; }
 

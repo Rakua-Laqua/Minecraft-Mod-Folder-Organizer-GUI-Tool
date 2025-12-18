@@ -67,6 +67,10 @@ public sealed class Executor
                         CreateZip(zip.SourceDirectory, zip.ZipPath);
                         break;
 
+                    case ExtractZipEntryOperation extract:
+                        ExtractZipEntry(extract.ZipPath, extract.EntryPath, extract.DestinationPath);
+                        break;
+
                     default:
                         logWarn($"Unknown operation: {op.Kind}");
                         break;
@@ -94,5 +98,25 @@ public sealed class Executor
         }
 
         ZipFile.CreateFromDirectory(sourceDirectory, zipPath, CompressionLevel.Optimal, includeBaseDirectory: true);
+    }
+
+    private static void ExtractZipEntry(string zipPath, string entryPath, string destinationPath)
+    {
+        using var zip = ZipFile.OpenRead(zipPath);
+
+        var normalized = entryPath.Replace('\\', '/');
+        var entry = zip.GetEntry(normalized);
+        if (entry is null)
+        {
+            throw new FileNotFoundException("Zip entry not found.", normalized);
+        }
+
+        var parent = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrWhiteSpace(parent))
+        {
+            Directory.CreateDirectory(parent);
+        }
+
+        entry.ExtractToFile(destinationPath, overwrite: true);
     }
 }
