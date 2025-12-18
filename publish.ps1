@@ -6,7 +6,7 @@ param(
   # 例: win-x64
   [string]$Runtime = 'win-x64',
 
-  [ValidateSet('self-contained','framework-dependent')]
+  [ValidateSet('self-contained','framework-dependent','both')]
   [string]$Mode = 'self-contained',
 
   # trueにすると成果物フォルダを事前に掃除します
@@ -22,38 +22,52 @@ if (!(Test-Path $ProjectPath)) {
   throw "Project not found: $ProjectPath"
 }
 
-$ModeDir = if ($Mode -eq 'self-contained') { 'self-contained' } else { 'framework-dependent' }
-$OutDir = Join-Path $RepoRoot ("artifacts\publish\$Runtime\$ModeDir")
+function Publish-One {
+  param(
+    [Parameter(Mandatory=$true)][ValidateSet('self-contained','framework-dependent')][string]$OneMode
+  )
 
-if ($Clean -and (Test-Path $OutDir)) {
-  Remove-Item $OutDir -Recurse -Force
+  $ModeDir = if ($OneMode -eq 'self-contained') { 'self-contained' } else { 'framework-dependent' }
+  $OutDir = Join-Path $RepoRoot ("artifacts\publish\$Runtime\$ModeDir")
+
+  if ($Clean -and (Test-Path $OutDir)) {
+    Remove-Item $OutDir -Recurse -Force
+  }
+
+  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+  Write-Host "Publishing..." -ForegroundColor Cyan
+  Write-Host "  Project: $ProjectPath"
+  Write-Host "  Config : $Configuration"
+  Write-Host "  Runtime: $Runtime"
+  Write-Host "  Mode   : $OneMode"
+  Write-Host "  Output : $OutDir"
+
+  if ($OneMode -eq 'self-contained') {
+    dotnet publish $ProjectPath `
+      -c $Configuration `
+      -r $Runtime `
+      --self-contained true `
+      -o $OutDir `
+      /p:PublishSingleFile=true `
+      /p:IncludeNativeLibrariesForSelfExtract=true
+  }
+  else {
+    dotnet publish $ProjectPath `
+      -c $Configuration `
+      -r $Runtime `
+      --self-contained false `
+      -o $OutDir
+  }
+
+  Write-Host "Done." -ForegroundColor Green
+  Write-Host "Open: $OutDir" -ForegroundColor Green
 }
 
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-
-Write-Host "Publishing..." -ForegroundColor Cyan
-Write-Host "  Project: $ProjectPath"
-Write-Host "  Config : $Configuration"
-Write-Host "  Runtime: $Runtime"
-Write-Host "  Mode   : $Mode"
-Write-Host "  Output : $OutDir"
-
-if ($Mode -eq 'self-contained') {
-  dotnet publish $ProjectPath `
-    -c $Configuration `
-    -r $Runtime `
-    --self-contained true `
-    -o $OutDir `
-    /p:PublishSingleFile=true `
-    /p:IncludeNativeLibrariesForSelfExtract=true
+if ($Mode -eq 'both') {
+  Publish-One -OneMode 'self-contained'
+  Publish-One -OneMode 'framework-dependent'
 }
 else {
-  dotnet publish $ProjectPath `
-    -c $Configuration `
-    -r $Runtime `
-    --self-contained false `
-    -o $OutDir
+  Publish-One -OneMode $Mode
 }
-
-Write-Host "Done." -ForegroundColor Green
-Write-Host "Open: $OutDir" -ForegroundColor Green

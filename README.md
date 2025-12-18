@@ -32,4 +32,13 @@ powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Mode self-contained -Run
 powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Mode framework-dependent -Runtime win-x64
 ```
 
+### 方式C: 両方まとめて出力（おすすめ）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Mode both -Runtime win-x64
+```
+
+- `artifacts/publish/win-x64/self-contained/`
+- `artifacts/publish/win-x64/framework-dependent/`
+
 ※ framework-dependent で配布する場合、利用者側に「.NET 8 Desktop Runtime」が必要です。
