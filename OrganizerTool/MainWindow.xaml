@@ -1,0 +1,105 @@
+﻿<Window x:Class="OrganizerTool.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:OrganizerTool"
+        mc:Ignorable="d"
+        Title="展開済みMinecraft Modフォルダ整理GUIツール" Height="820" Width="1100"
+        MinHeight="650" MinWidth="900">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="220"/>
+        </Grid.RowDefinitions>
+
+        <!-- 1) 親フォルダ選択 -->
+        <GroupBox Header="親フォルダ" Grid.Row="0" Padding="10">
+            <DockPanel LastChildFill="True">
+                <Button Content="参照..." Width="90" Margin="0,0,8,0" Command="{Binding BrowseCommand}" DockPanel.Dock="Right"/>
+                <TextBox Text="{Binding TargetDir, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="False" VerticalContentAlignment="Center"/>
+            </DockPanel>
+        </GroupBox>
+
+        <!-- 2) オプション領域 -->
+        <GroupBox Header="オプション" Grid.Row="1" Margin="0,10,0,0" Padding="10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="280"/>
+                    <ColumnDefinition Width="360"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <CheckBox Content="ドライラン（変更しない）" IsChecked="{Binding DryRun}" Margin="0,0,0,6"/>
+                    <CheckBox Content="実行前バックアップ（Zip）" IsChecked="{Binding BackupZip}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="lang複数時の扱い" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <RadioButton Content="最初の1件を採用（既定）" IsChecked="{Binding MultiLangFirstOnly}" Margin="0,0,0,4"/>
+                    <RadioButton Content="全候補を統合（同名は上書き）" IsChecked="{Binding MultiLangMergeAll}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="削除方式" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <RadioButton Content="完全削除（既定）" IsChecked="{Binding DeletePermanent}" Margin="0,0,0,4"/>
+                    <RadioButton Content="ゴミ箱へ（可能なら）" IsChecked="{Binding DeleteRecycleBin}"/>
+                </StackPanel>
+            </Grid>
+        </GroupBox>
+
+        <!-- 3) スキャン結果テーブル -->
+        <GroupBox Header="スキャン結果" Grid.Row="2" Margin="0,10,0,0" Padding="10">
+            <DataGrid ItemsSource="{Binding Mods}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Mod名" Binding="{Binding ModName}" Width="2*"/>
+                    <DataGridCheckBoxColumn Header="assets" Binding="{Binding AssetsExists}" Width="80"/>
+                    <DataGridTextColumn Header="lang検出" Binding="{Binding LangCount}" Width="90"/>
+                    <DataGridTextColumn Header="処理方針" Binding="{Binding PolicyLabel}" Width="180"/>
+                    <DataGridTextColumn Header="移動(概算)" Binding="{Binding PlannedMoves}" Width="90"/>
+                    <DataGridTextColumn Header="削除(概算)" Binding="{Binding PlannedDeletes}" Width="90"/>
+                    <DataGridTextColumn Header="ステータス" Binding="{Binding StatusLabel}" Width="100"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+
+        <!-- 4) 実行コントロール -->
+        <Grid Grid.Row="3" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" Grid.Column="0">
+                <Button Content="スキャン" Width="100" Margin="0,0,8,0" Command="{Binding ScanCommand}"/>
+                <Button Content="実行" Width="100" Margin="0,0,8,0" Command="{Binding ExecuteCommand}"/>
+                <Button Content="キャンセル" Width="100" Command="{Binding CancelCommand}"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="3">
+                <ProgressBar Height="18" Minimum="0" Maximum="100" Value="{Binding ProgressValue}"/>
+                <TextBlock Text="{Binding ProgressText}" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- 5) ログビュー -->
+        <GroupBox Header="ログ" Grid.Row="4" Margin="0,10,0,0" Padding="10">
+            <DockPanel LastChildFill="True">
+                <Button Content="ログ保存" Width="90" Margin="0,0,0,8" Command="{Binding SaveLogCommand}" DockPanel.Dock="Top" HorizontalAlignment="Right"/>
+                <DataGrid ItemsSource="{Binding Logs}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="時刻" Binding="{Binding Time}" Width="170"/>
+                        <DataGridTextColumn Header="レベル" Binding="{Binding Level}" Width="80"/>
+                        <DataGridTextColumn Header="メッセージ" Binding="{Binding Message}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </GroupBox>
+    </Grid>
+</Window>
