@@ -83,8 +83,8 @@
             </StackPanel>
 
             <StackPanel Grid.Column="3">
-                <ProgressBar Height="18" Minimum="0" Maximum="100" Value="{Binding ProgressValue}"/>
-                <TextBlock Text="{Binding ProgressText}" Margin="0,4,0,0"/>
+                <ProgressBar Height="18" Minimum="0" Maximum="100" Value="{Binding ProgressValue, Mode=OneWay}"/>
+                <TextBlock Text="{Binding ProgressText, Mode=OneWay}" Margin="0,4,0,0"/>
             </StackPanel>
         </Grid>
 
