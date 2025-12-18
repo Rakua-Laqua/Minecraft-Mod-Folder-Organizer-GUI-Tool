@@ -1,10 +1,12 @@
 using System.IO;
+using System.IO.Compression;
+using OrganizerTool.Models;
 
 namespace OrganizerTool.Domain;
 
 public sealed class ModScanner
 {
-    public IReadOnlyList<ModScanResult> Scan(string targetDir, Func<string, bool> isCancelled)
+    public IReadOnlyList<ModScanResult> Scan(string targetDir, bool includeJarFiles, Func<string, bool> isCancelled)
     {
         if (string.IsNullOrWhiteSpace(targetDir))
         {
@@ -17,34 +19,116 @@ public sealed class ModScanner
         }
 
         var modDirs = Directory.EnumerateDirectories(targetDir, "*", SearchOption.TopDirectoryOnly)
+            .ToList();
+
+        var jarFiles = includeJarFiles
+            ? Directory.EnumerateFiles(targetDir, "*.jar", SearchOption.TopDirectoryOnly).ToList()
+            : new List<string>();
+
+        var allItems = modDirs
+            .Concat(jarFiles)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var results = new List<ModScanResult>(modDirs.Count);
+        var results = new List<ModScanResult>(allItems.Count);
 
-        foreach (var modPath in modDirs)
+        foreach (var path in allItems)
         {
-            if (isCancelled(modPath))
+            if (isCancelled(path))
             {
                 break;
             }
 
-            var modName = Path.GetFileName(modPath);
-            var assetsPath = Path.Combine(modPath, "assets");
-            var assetsExists = Directory.Exists(assetsPath);
-
-            var candidates = assetsExists ? FindLangCandidates(assetsPath).ToList() : new List<string>();
-
-            results.Add(new ModScanResult
+            if (Directory.Exists(path))
             {
-                ModName = modName,
-                ModPath = modPath,
-                AssetsExists = assetsExists,
-                LangCandidates = candidates,
-            });
+                var modName = Path.GetFileName(path);
+                var assetsPath = Path.Combine(path, "assets");
+                var assetsExists = Directory.Exists(assetsPath);
+
+                var candidates = assetsExists ? FindLangCandidates(assetsPath).ToList() : new List<string>();
+
+                results.Add(new ModScanResult
+                {
+                    SourceType = ModSourceType.Directory,
+                    ModName = modName,
+                    ModPath = path,
+                    AssetsExists = assetsExists,
+                    LangCandidates = candidates,
+                });
+
+                continue;
+            }
+
+            if (File.Exists(path) && path.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+            {
+                var modName = Path.GetFileName(path);
+
+                var (assetsExists, candidates) = FindLangCandidatesInJar(path);
+
+                results.Add(new ModScanResult
+                {
+                    SourceType = ModSourceType.Jar,
+                    ModName = modName,
+                    ModPath = path,
+                    AssetsExists = assetsExists,
+                    LangCandidates = candidates,
+                });
+            }
         }
 
         return results;
+    }
+
+    private static (bool assetsExists, IReadOnlyList<string> langCandidates) FindLangCandidatesInJar(string jarPath)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(jarPath);
+
+            var assetsExists = false;
+            var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in zip.Entries)
+            {
+                var name = entry.FullName;
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                // Zipは '/' 区切り
+                if (name.StartsWith("assets/", StringComparison.OrdinalIgnoreCase))
+                {
+                    assetsExists = true;
+                }
+
+                // assets/<modid>/lang/... の存在確認
+                if (!name.StartsWith("assets/", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var parts = name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 3)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(parts[2], "lang", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // langディレクトリそのものを候補にする（末尾スラッシュ無し）
+                candidates.Add($"assets/{parts[1]}/lang");
+            }
+
+            return (assetsExists, candidates.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList());
+        }
+        catch
+        {
+            return (false, Array.Empty<string>());
+        }
     }
 
     private static IEnumerable<string> FindLangCandidates(string assetsPath)

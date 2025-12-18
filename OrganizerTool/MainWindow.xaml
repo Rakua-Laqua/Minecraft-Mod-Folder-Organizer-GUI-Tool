@@ -35,6 +35,7 @@
 
                 <StackPanel Grid.Column="0">
                     <CheckBox Content="ドライラン（変更しない）" IsChecked="{Binding DryRun}" Margin="0,0,0,6"/>
+                    <CheckBox Content="jarも対象（jarのままlang抽出）" IsChecked="{Binding JarMode}" Margin="0,0,0,6"/>
                     <CheckBox Content="実行前バックアップ（Zip）" IsChecked="{Binding BackupZip}"/>
                 </StackPanel>
 

@@ -24,6 +24,7 @@ public sealed class MainViewModel : ViewModelBase
 
     private bool _dryRun;
     private bool _backupZip;
+    private bool _jarMode;
 
     private MultiLangMode _multiLangMode = MultiLangMode.FirstOnly;
     private DeleteMode _deleteMode = DeleteMode.Permanent;
@@ -109,6 +110,20 @@ public sealed class MainViewModel : ViewModelBase
         set => SetProperty(ref _backupZip, value);
     }
 
+    public bool JarMode
+    {
+        get => _jarMode;
+        set
+        {
+            if (SetProperty(ref _jarMode, value))
+            {
+                // スキャン結果の対象範囲が変わるため、再スキャンを促す
+                ScanCompleted = false;
+                RaiseCanExecuteAll();
+            }
+        }
+    }
+
     public bool MultiLangFirstOnly
     {
         get => _multiLangMode == MultiLangMode.FirstOnly;
@@ -182,6 +197,7 @@ public sealed class MainViewModel : ViewModelBase
     private AppOptions CurrentOptions() => new()
     {
         DryRun = DryRun,
+        JarMode = JarMode,
         BackupZip = BackupZip,
         MultiLangMode = _multiLangMode,
         DeleteMode = _deleteMode,
@@ -226,7 +242,8 @@ public sealed class MainViewModel : ViewModelBase
 
         try
         {
-            var results = await Task.Run(() => _scanner.Scan(TargetDir, _ => _cancelRequested));
+            var includeJar = JarMode;
+            var results = await Task.Run(() => _scanner.Scan(TargetDir, includeJar, _ => _cancelRequested));
 
             foreach (var r in results)
             {
@@ -234,6 +251,7 @@ public sealed class MainViewModel : ViewModelBase
                 {
                     ModPath = r.ModPath,
                     LangCandidates = r.LangCandidates,
+                    SourceType = r.SourceType,
                     ModName = r.ModName,
                     AssetsExists = r.AssetsExists,
                     LangCount = r.LangCandidates.Count,
@@ -273,6 +291,7 @@ public sealed class MainViewModel : ViewModelBase
         {
             var scan = new ModScanResult
             {
+                SourceType = mod.SourceType,
                 ModName = mod.ModName,
                 ModPath = mod.ModPath,
                 AssetsExists = mod.AssetsExists,
@@ -305,13 +324,18 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         var langNoneCount = Mods.Count(m => m.LangCount == 0);
+        var jarCount = Mods.Count(m => m.SourceType == ModSourceType.Jar);
+        var jarOut = Path.Combine(TargetDir, "_jar_lang");
 
         var confirmMessage =
             $"実行してよろしいですか？\n\n" +
             $"対象: {TargetDir}\n" +
             $"Mod数: {Mods.Count}\n" +
+            $"jar数: {jarCount}（jarは削除/改変せず、langのみ抽出します）\n" +
             $"langなし: {langNoneCount}（該当Modは中身が全削除され空フォルダになります）\n\n" +
             $"ドライラン: {(DryRun ? "ON" : "OFF")}\n" +
+            $"jarモード: {(JarMode ? "ON" : "OFF")}\n" +
+            $"jar出力先: {jarOut}\n" +
             $"複数lang時: {(_multiLangMode == MultiLangMode.FirstOnly ? "最初の1件" : "全候補を統合")}\n" +
             $"削除方式: {(_deleteMode == DeleteMode.Permanent ? "完全削除" : "ゴミ箱") }\n" +
             $"バックアップZip: {(BackupZip ? "ON" : "OFF")}\n";
@@ -351,6 +375,7 @@ public sealed class MainViewModel : ViewModelBase
                 // plan 作成
                 var scan = new ModScanResult
                 {
+                    SourceType = mod.SourceType,
                     ModName = mod.ModName,
                     ModPath = mod.ModPath,
                     AssetsExists = mod.AssetsExists,

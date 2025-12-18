@@ -14,6 +14,7 @@ public sealed class ModItemViewModel : ViewModelBase
 
     public required string ModPath { get; init; }
     public required IReadOnlyList<string> LangCandidates { get; init; }
+    public ModSourceType SourceType { get; init; } = ModSourceType.Directory;
 
     public string ModName
     {
