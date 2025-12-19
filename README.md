@@ -1,6 +1,21 @@
 # Minecraft-Mod-Folder-Organizer-GUI-Tool
 
-展開済みMinecraft Modフォルダ群を対象に、各Mod内の `assets/<modid>/lang/` を抽出して `Mod直下/lang` に集約し、それ以外を削除するGUIツールです。
+展開済みMinecraft Modフォルダ群を対象に、各Mod内の lang ファイル（`.json` / `.lang`）を抽出して `Mod直下/lang` に集約し、それ以外を削除するGUIツールです。
+
+## 主な機能
+
+- 展開済みModフォルダの lang を検出・抽出
+	- `assets/<modid>/lang/` だけでなく、`assets` 配下以外にある `lang` も検出対象
+- langが複数ある場合の扱いを選択
+	- 最初の1件を採用（既定）
+	- 全候補を統合（同名は上書き）
+	- 各候補を個別に抽出（`Mod直下/lang/<候補名>/...`）
+- jarモード（親フォルダ直下の `.jar` も対象）
+	- `.jar` は改変せず、langのみ抽出
+	- 抽出先は `.jar` と同じフォルダ直下（`<jar名>/lang/`）
+- 設定の永続化
+	- 前回の `TargetDir` と各オプションを `settings.json` に保存し、起動時に復元
+	- 保存先: `%LocalAppData%\MinecraftModFolderOrganizer\settings.json`
 
 ## 開発
 
