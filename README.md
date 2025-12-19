@@ -38,6 +38,10 @@ powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Mode framework-dependent
 powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Mode both -Runtime win-x64
 ```
 
+```powershell
+powershell -File .\publish.ps1 -Mode both -Runtime win-x64
+```
+
 - `artifacts/publish/win-x64/self-contained/`
 - `artifacts/publish/win-x64/framework-dependent/`
 
@@ -47,6 +51,10 @@ powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Mode both -Runtime win-x
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\publish.ps1 -Mode both -Runtime win-x64 -Zip
+```
+
+```powershell
+powershell -File .\publish.ps1 -Mode both -Runtime win-x64 -Zip
 ```
 
 - 出力先: `artifacts/dist/win-x64/`
