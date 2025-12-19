@@ -343,7 +343,7 @@ public sealed class MainViewModel : ViewModelBase
 
         var langNoneCount = Mods.Count(m => m.LangCount == 0);
         var jarCount = Mods.Count(m => m.SourceType == ModSourceType.Jar);
-        var jarOut = Path.Combine(TargetDir, "_jar_lang");
+        var jarOut = TargetDir;
 
         var confirmMessage =
             $"実行してよろしいですか？\n\n" +
@@ -353,7 +353,7 @@ public sealed class MainViewModel : ViewModelBase
             $"langなし: {langNoneCount}（該当Modは中身が全削除され空フォルダになります）\n\n" +
             $"ドライラン: {(DryRun ? "ON" : "OFF")}\n" +
             $"jarモード: {(JarMode ? "ON" : "OFF")}\n" +
-            $"jar出力先: {jarOut}\n" +
+            $"jar出力先: {jarOut}（jar名ごとに <jar名>/lang/ へ抽出）\n" +
             $"複数lang時: {(_multiLangMode switch { MultiLangMode.FirstOnly => "最初の1件", MultiLangMode.MergeAll => "全候補を統合", MultiLangMode.SeparateFolders => "個別に抽出", _ => "(不明)" })}\n" +
             $"削除方式: {(_deleteMode == DeleteMode.Permanent ? "完全削除" : "ゴミ箱") }\n" +
             $"バックアップZip: {(BackupZip ? "ON" : "OFF")}\n";

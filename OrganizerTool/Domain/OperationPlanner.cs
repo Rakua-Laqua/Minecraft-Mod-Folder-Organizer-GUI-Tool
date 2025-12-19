@@ -124,9 +124,9 @@ public sealed class OperationPlanner
         var jarName = Path.GetFileNameWithoutExtension(jarPath);
         var parent = Path.GetDirectoryName(jarPath) ?? "";
 
-        // 安全のため、jarは改変せず、親フォルダ配下の専用出力へ抽出する
-        // 例: <TargetDir>/_jar_lang/<jarName>/lang/*.json
-        var dstLangDir = Path.Combine(parent, "_jar_lang", jarName, "lang");
+        // jarは改変せず、jarと同じフォルダ直下へ抽出する
+        // 例: <TargetDir>/<jarName>/lang/*.json
+        var dstLangDir = Path.Combine(parent, jarName, "lang");
 
         var candidates = scan.LangCandidates;
         var chosenLangDirs = ChooseLangSources(candidates, options.MultiLangMode);
