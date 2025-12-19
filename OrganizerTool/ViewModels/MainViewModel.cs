@@ -16,6 +16,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Executor _executor = new(new FileSystem());
 
     private readonly Logger _logger;
+    private readonly SettingsStore _settingsStore = new();
 
     private string _targetDir = "";
     private bool _isBusy;
@@ -29,12 +30,16 @@ public sealed class MainViewModel : ViewModelBase
     private MultiLangMode _multiLangMode = MultiLangMode.FirstOnly;
     private DeleteMode _deleteMode = DeleteMode.Permanent;
 
+    private bool _suppressSettingsSave;
+
     private bool _scanCompleted;
     private bool _cancelRequested;
 
     public MainViewModel()
     {
         _logger = new Logger(Logs);
+
+        LoadSettings();
 
         BrowseCommand = new RelayCommand(Browse, () => !IsBusy);
         ScanCommand = new RelayCommand(async () => await ScanAsync(), () => !IsBusy && Directory.Exists(TargetDir));
@@ -64,6 +69,7 @@ public sealed class MainViewModel : ViewModelBase
             {
                 ScanCompleted = false;
                 RaiseCanExecuteAll();
+                SaveSettings();
             }
         }
     }
@@ -100,6 +106,7 @@ public sealed class MainViewModel : ViewModelBase
             if (SetProperty(ref _dryRun, value))
             {
                 RecalculatePlans();
+                SaveSettings();
             }
         }
     }
@@ -107,7 +114,13 @@ public sealed class MainViewModel : ViewModelBase
     public bool BackupZip
     {
         get => _backupZip;
-        set => SetProperty(ref _backupZip, value);
+        set
+        {
+            if (SetProperty(ref _backupZip, value))
+            {
+                SaveSettings();
+            }
+        }
     }
 
     public bool JarMode
@@ -120,6 +133,7 @@ public sealed class MainViewModel : ViewModelBase
                 // スキャン結果の対象範囲が変わるため、再スキャンを促す
                 ScanCompleted = false;
                 RaiseCanExecuteAll();
+                SaveSettings();
             }
         }
     }
@@ -136,6 +150,7 @@ public sealed class MainViewModel : ViewModelBase
                 OnPropertyChanged(nameof(MultiLangMergeAll));
                 OnPropertyChanged(nameof(MultiLangSeparateFolders));
                 RecalculatePlans();
+                SaveSettings();
             }
         }
     }
@@ -152,6 +167,7 @@ public sealed class MainViewModel : ViewModelBase
                 OnPropertyChanged(nameof(MultiLangMergeAll));
                 OnPropertyChanged(nameof(MultiLangSeparateFolders));
                 RecalculatePlans();
+                SaveSettings();
             }
         }
     }
@@ -168,6 +184,7 @@ public sealed class MainViewModel : ViewModelBase
                 OnPropertyChanged(nameof(MultiLangMergeAll));
                 OnPropertyChanged(nameof(MultiLangSeparateFolders));
                 RecalculatePlans();
+                SaveSettings();
             }
         }
     }
@@ -182,6 +199,7 @@ public sealed class MainViewModel : ViewModelBase
                 _deleteMode = DeleteMode.Permanent;
                 OnPropertyChanged(nameof(DeletePermanent));
                 OnPropertyChanged(nameof(DeleteRecycleBin));
+                SaveSettings();
             }
         }
     }
@@ -196,6 +214,7 @@ public sealed class MainViewModel : ViewModelBase
                 _deleteMode = DeleteMode.RecycleBin;
                 OnPropertyChanged(nameof(DeletePermanent));
                 OnPropertyChanged(nameof(DeleteRecycleBin));
+                SaveSettings();
             }
         }
     }
@@ -220,6 +239,54 @@ public sealed class MainViewModel : ViewModelBase
         MultiLangMode = _multiLangMode,
         DeleteMode = _deleteMode,
     };
+
+    private void LoadSettings()
+    {
+        _suppressSettingsSave = true;
+
+        try
+        {
+            var settings = _settingsStore.LoadOrDefault();
+
+            TargetDir = settings.TargetDir;
+            DryRun = settings.DryRun;
+            BackupZip = settings.BackupZip;
+            JarMode = settings.JarMode;
+
+            _multiLangMode = settings.MultiLangMode;
+            OnPropertyChanged(nameof(MultiLangFirstOnly));
+            OnPropertyChanged(nameof(MultiLangMergeAll));
+            OnPropertyChanged(nameof(MultiLangSeparateFolders));
+
+            _deleteMode = settings.DeleteMode;
+            OnPropertyChanged(nameof(DeletePermanent));
+            OnPropertyChanged(nameof(DeleteRecycleBin));
+        }
+        finally
+        {
+            _suppressSettingsSave = false;
+        }
+    }
+
+    private void SaveSettings()
+    {
+        if (_suppressSettingsSave)
+        {
+            return;
+        }
+
+        var settings = new PersistedSettings
+        {
+            TargetDir = TargetDir,
+            DryRun = DryRun,
+            BackupZip = BackupZip,
+            JarMode = JarMode,
+            MultiLangMode = _multiLangMode,
+            DeleteMode = _deleteMode,
+        };
+
+        _settingsStore.TrySave(settings);
+    }
 
     private void Browse()
     {
