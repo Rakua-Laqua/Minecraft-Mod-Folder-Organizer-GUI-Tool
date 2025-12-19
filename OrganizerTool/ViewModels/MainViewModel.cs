@@ -39,13 +39,13 @@ public sealed class MainViewModel : ViewModelBase
     {
         _logger = new Logger(Logs);
 
-        LoadSettings();
-
         BrowseCommand = new RelayCommand(Browse, () => !IsBusy);
         ScanCommand = new RelayCommand(async () => await ScanAsync(), () => !IsBusy && Directory.Exists(TargetDir));
         ExecuteCommand = new RelayCommand(async () => await ExecuteAsync(), () => !IsBusy && ScanCompleted && Mods.Count > 0);
         CancelCommand = new RelayCommand(RequestCancel, () => IsBusy);
         SaveLogCommand = new RelayCommand(SaveLog, () => Logs.Count > 0);
+
+        LoadSettings();
 
         Logs.CollectionChanged += (_, _) => SaveLogCommand.RaiseCanExecuteChanged();
         Mods.CollectionChanged += (_, _) => ExecuteCommand.RaiseCanExecuteChanged();
@@ -560,10 +560,10 @@ public sealed class MainViewModel : ViewModelBase
 
     private void RaiseCanExecuteAll()
     {
-        BrowseCommand.RaiseCanExecuteChanged();
-        ScanCommand.RaiseCanExecuteChanged();
-        ExecuteCommand.RaiseCanExecuteChanged();
-        CancelCommand.RaiseCanExecuteChanged();
-        SaveLogCommand.RaiseCanExecuteChanged();
+        BrowseCommand?.RaiseCanExecuteChanged();
+        ScanCommand?.RaiseCanExecuteChanged();
+        ExecuteCommand?.RaiseCanExecuteChanged();
+        CancelCommand?.RaiseCanExecuteChanged();
+        SaveLogCommand?.RaiseCanExecuteChanged();
     }
 }
