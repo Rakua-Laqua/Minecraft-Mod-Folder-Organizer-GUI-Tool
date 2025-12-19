@@ -134,6 +134,7 @@ public sealed class MainViewModel : ViewModelBase
                 _multiLangMode = MultiLangMode.FirstOnly;
                 OnPropertyChanged(nameof(MultiLangFirstOnly));
                 OnPropertyChanged(nameof(MultiLangMergeAll));
+                OnPropertyChanged(nameof(MultiLangSeparateFolders));
                 RecalculatePlans();
             }
         }
@@ -149,6 +150,23 @@ public sealed class MainViewModel : ViewModelBase
                 _multiLangMode = MultiLangMode.MergeAll;
                 OnPropertyChanged(nameof(MultiLangFirstOnly));
                 OnPropertyChanged(nameof(MultiLangMergeAll));
+                OnPropertyChanged(nameof(MultiLangSeparateFolders));
+                RecalculatePlans();
+            }
+        }
+    }
+
+    public bool MultiLangSeparateFolders
+    {
+        get => _multiLangMode == MultiLangMode.SeparateFolders;
+        set
+        {
+            if (value)
+            {
+                _multiLangMode = MultiLangMode.SeparateFolders;
+                OnPropertyChanged(nameof(MultiLangFirstOnly));
+                OnPropertyChanged(nameof(MultiLangMergeAll));
+                OnPropertyChanged(nameof(MultiLangSeparateFolders));
                 RecalculatePlans();
             }
         }
@@ -336,7 +354,7 @@ public sealed class MainViewModel : ViewModelBase
             $"ドライラン: {(DryRun ? "ON" : "OFF")}\n" +
             $"jarモード: {(JarMode ? "ON" : "OFF")}\n" +
             $"jar出力先: {jarOut}\n" +
-            $"複数lang時: {(_multiLangMode == MultiLangMode.FirstOnly ? "最初の1件" : "全候補を統合")}\n" +
+            $"複数lang時: {(_multiLangMode switch { MultiLangMode.FirstOnly => "最初の1件", MultiLangMode.MergeAll => "全候補を統合", MultiLangMode.SeparateFolders => "個別に抽出", _ => "(不明)" })}\n" +
             $"削除方式: {(_deleteMode == DeleteMode.Permanent ? "完全削除" : "ゴミ箱") }\n" +
             $"バックアップZip: {(BackupZip ? "ON" : "OFF")}\n";
 

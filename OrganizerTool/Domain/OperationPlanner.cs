@@ -37,15 +37,29 @@ public sealed class OperationPlanner
             // A) langあり
             operations.Add(new EnsureDirectoryOperation(dstLangDir));
 
+            var separate = options.MultiLangMode == MultiLangMode.SeparateFolders && chosenLangDirs.Count > 1;
+            var sourceKeyMap = separate
+                ? BuildUniqueKeysForDirectorySources(chosenLangDirs, modRoot)
+                : null;
+
             foreach (var srcLangDir in chosenLangDirs)
             {
+                var dstBaseDir = separate
+                    ? Path.Combine(dstLangDir, sourceKeyMap![srcLangDir])
+                    : dstLangDir;
+
+                if (separate)
+                {
+                    operations.Add(new EnsureDirectoryOperation(dstBaseDir));
+                }
+
                 var entries = SafeEnumerateFileSystemEntries(srcLangDir);
                 foreach (var entry in entries)
                 {
                     plannedMoves++;
 
                     var name = Path.GetFileName(entry);
-                    var destPath = Path.Combine(dstLangDir, name);
+                    var destPath = Path.Combine(dstBaseDir, name);
 
                     if (File.Exists(destPath) || Directory.Exists(destPath))
                     {
@@ -123,14 +137,28 @@ public sealed class OperationPlanner
         {
             operations.Add(new EnsureDirectoryOperation(dstLangDir));
 
+            var separate = options.MultiLangMode == MultiLangMode.SeparateFolders && chosenLangDirs.Count > 1;
+            var sourceKeyMap = separate
+                ? BuildUniqueKeysForJarSources(chosenLangDirs)
+                : null;
+
             foreach (var langDir in chosenLangDirs)
             {
+                var dstBaseDir = separate
+                    ? Path.Combine(dstLangDir, sourceKeyMap![langDir])
+                    : dstLangDir;
+
+                if (separate)
+                {
+                    operations.Add(new EnsureDirectoryOperation(dstBaseDir));
+                }
+
                 foreach (var entryPath in EnumerateLangFilesInJar(jarPath, langDir))
                 {
                     plannedExtracts++;
 
                     var fileName = Path.GetFileName(entryPath.Replace('/', Path.DirectorySeparatorChar));
-                    var destPath = Path.Combine(dstLangDir, fileName);
+                    var destPath = Path.Combine(dstBaseDir, fileName);
                     operations.Add(new ExtractZipEntryOperation(jarPath, entryPath, destPath));
                 }
             }
@@ -209,8 +237,137 @@ public sealed class OperationPlanner
         return mode switch
         {
             MultiLangMode.MergeAll => candidates,
+            MultiLangMode.SeparateFolders => candidates,
             _ => new[] { candidates[0] },
         };
+    }
+
+    private static IReadOnlyDictionary<string, string> BuildUniqueKeysForDirectorySources(IReadOnlyList<string> sources, string modRoot)
+    {
+        var assetsDir = Path.Combine(modRoot, "assets")
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var used = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var src in sources)
+        {
+            var key = GetKeyForDirectorySource(src, assetsDir);
+            key = SanitizeKey(key);
+
+            if (used.TryGetValue(key, out var count))
+            {
+                count++;
+                used[key] = count;
+                key = $"{key}-{count}";
+            }
+            else
+            {
+                used[key] = 1;
+            }
+
+            map[src] = key;
+        }
+
+        return map;
+    }
+
+    private static string GetKeyForDirectorySource(string srcLangDir, string assetsDir)
+    {
+        try
+        {
+            var di = new DirectoryInfo(srcLangDir);
+            var parent = di.Parent;
+            if (parent is null)
+            {
+                return "lang";
+            }
+
+            var grand = parent.Parent;
+            if (grand is not null)
+            {
+                var grandFull = grand.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (string.Equals(grandFull, assetsDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    // assets/<modid>/lang の modid
+                    return parent.Name;
+                }
+            }
+
+            // assets外: 1つ上のディレクトリ名をキーにする（root/lang なら "root" 相当になる）
+            return string.IsNullOrWhiteSpace(parent.Name) ? "root" : parent.Name;
+        }
+        catch
+        {
+            return "lang";
+        }
+    }
+
+    private static IReadOnlyDictionary<string, string> BuildUniqueKeysForJarSources(IReadOnlyList<string> sources)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var used = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var src in sources)
+        {
+            var key = GetKeyForJarSource(src);
+            key = SanitizeKey(key);
+
+            if (used.TryGetValue(key, out var count))
+            {
+                count++;
+                used[key] = count;
+                key = $"{key}-{count}";
+            }
+            else
+            {
+                used[key] = 1;
+            }
+
+            map[src] = key;
+        }
+
+        return map;
+    }
+
+    private static string GetKeyForJarSource(string langDir)
+    {
+        // langDir 例:
+        // - assets/<modid>/lang
+        // - lang
+        // - some/path/lang
+        var parts = langDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return "lang";
+        }
+
+        if (parts.Length >= 3 &&
+            string.Equals(parts[0], "assets", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(parts[2], "lang", StringComparison.OrdinalIgnoreCase))
+        {
+            return parts[1];
+        }
+
+        // 末尾が lang のはずなので、その1つ上をキーにする
+        if (parts.Length >= 2)
+        {
+            return parts[^2];
+        }
+
+        return "root";
+    }
+
+    private static string SanitizeKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return "lang";
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(key.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
+        return string.IsNullOrWhiteSpace(cleaned) ? "lang" : cleaned;
     }
 
     private static IReadOnlyList<string> SafeEnumerateFileSystemEntries(string dir)

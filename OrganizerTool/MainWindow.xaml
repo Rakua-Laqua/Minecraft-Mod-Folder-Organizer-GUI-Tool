@@ -43,6 +43,7 @@
                     <TextBlock Text="lang複数時の扱い" FontWeight="SemiBold" Margin="0,0,0,6"/>
                     <RadioButton Content="最初の1件を採用（既定）" IsChecked="{Binding MultiLangFirstOnly}" Margin="0,0,0,4"/>
                     <RadioButton Content="全候補を統合（同名は上書き）" IsChecked="{Binding MultiLangMergeAll}"/>
+                    <RadioButton Content="各候補を個別に抽出（lang/&lt;候補名&gt;/...）" IsChecked="{Binding MultiLangSeparateFolders}" Margin="0,4,0,0"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2">

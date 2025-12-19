@@ -10,6 +10,7 @@ public enum MultiLangMode
 {
     FirstOnly = 0,
     MergeAll = 1,
+    SeparateFolders = 2,
 }
 
 public enum DeleteMode
