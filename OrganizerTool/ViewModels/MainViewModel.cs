@@ -24,6 +24,7 @@ public sealed class MainViewModel : ViewModelBase
     private string _progressText = "";
 
     private bool _dryRun;
+    private bool _ensureJaJpFromEnUs = true;
     private bool _backupZip;
     private bool _jarMode;
 
@@ -104,6 +105,19 @@ public sealed class MainViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _dryRun, value))
+            {
+                RecalculatePlans();
+                SaveSettings();
+            }
+        }
+    }
+
+    public bool EnsureJaJpFromEnUs
+    {
+        get => _ensureJaJpFromEnUs;
+        set
+        {
+            if (SetProperty(ref _ensureJaJpFromEnUs, value))
             {
                 RecalculatePlans();
                 SaveSettings();
@@ -234,6 +248,7 @@ public sealed class MainViewModel : ViewModelBase
     private AppOptions CurrentOptions() => new()
     {
         DryRun = DryRun,
+        EnsureJaJpFromEnUs = EnsureJaJpFromEnUs,
         JarMode = JarMode,
         BackupZip = BackupZip,
         MultiLangMode = _multiLangMode,
@@ -250,6 +265,7 @@ public sealed class MainViewModel : ViewModelBase
 
             TargetDir = settings.TargetDir;
             DryRun = settings.DryRun;
+            EnsureJaJpFromEnUs = settings.EnsureJaJpFromEnUs;
             BackupZip = settings.BackupZip;
             JarMode = settings.JarMode;
 
@@ -279,6 +295,7 @@ public sealed class MainViewModel : ViewModelBase
         {
             TargetDir = TargetDir,
             DryRun = DryRun,
+            EnsureJaJpFromEnUs = EnsureJaJpFromEnUs,
             BackupZip = BackupZip,
             JarMode = JarMode,
             MultiLangMode = _multiLangMode,
@@ -419,6 +436,7 @@ public sealed class MainViewModel : ViewModelBase
             $"jar数: {jarCount}（jarは削除/改変せず、langのみ抽出します）\n" +
             $"langなし: {langNoneCount}（該当Modは中身が全削除され空フォルダになります）\n\n" +
             $"ドライラン: {(DryRun ? "ON" : "OFF")}\n" +
+            $"ja_jp補完: {(EnsureJaJpFromEnUs ? "ON (en_us.json から生成)" : "OFF")}\n" +
             $"jarモード: {(JarMode ? "ON" : "OFF")}\n" +
             $"jar出力先: {jarOut}（jar名ごとに <jar名>/lang/ へ抽出）\n" +
             $"複数lang時: {(_multiLangMode switch { MultiLangMode.FirstOnly => "最初の1件", MultiLangMode.MergeAll => "全候補を統合", MultiLangMode.SeparateFolders => "個別に抽出", _ => "(不明)" })}\n" +

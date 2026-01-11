@@ -9,6 +9,7 @@ public sealed class PersistedSettings
     public string TargetDir { get; set; } = "";
 
     public bool DryRun { get; set; }
+    public bool EnsureJaJpFromEnUs { get; set; } = true;
     public bool BackupZip { get; set; }
     public bool JarMode { get; set; }
 

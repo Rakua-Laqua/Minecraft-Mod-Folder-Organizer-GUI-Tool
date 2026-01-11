@@ -7,6 +7,7 @@ public enum OperationKind
     DeletePath = 2,
     BackupZip = 3,
     ExtractZipEntry = 4,
+    EnsureJaJpFromEnUs = 5,
 }
 
 public interface IOperation
@@ -43,6 +44,13 @@ public sealed record ExtractZipEntryOperation(string ZipPath, string EntryPath, 
 {
     public OperationKind Kind => OperationKind.ExtractZipEntry;
     public string Describe() => $"EXTRACT {ZipPath}!{EntryPath} -> {DestinationPath}";
+}
+
+public sealed record EnsureJaJpFromEnUsOperation(string LangDirectoryPath) : IOperation
+{
+    public OperationKind Kind => OperationKind.EnsureJaJpFromEnUs;
+
+    public string Describe() => $"ENSURE {LangDirectoryPath} (ja_jp.json from en_us.json if missing)";
 }
 
 public sealed class ExecutionPlan

@@ -71,6 +71,10 @@ public sealed class Executor
                         ExtractZipEntry(extract.ZipPath, extract.EntryPath, extract.DestinationPath);
                         break;
 
+                    case EnsureJaJpFromEnUsOperation ensureJa:
+                        EnsureJaJpFromEnUs(ensureJa.LangDirectoryPath);
+                        break;
+
                     default:
                         logWarn($"Unknown operation: {op.Kind}");
                         break;
@@ -118,5 +122,33 @@ public sealed class Executor
         }
 
         entry.ExtractToFile(destinationPath, overwrite: true);
+    }
+
+    private static void EnsureJaJpFromEnUs(string langDirectoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(langDirectoryPath))
+        {
+            return;
+        }
+
+        if (!Directory.Exists(langDirectoryPath))
+        {
+            return;
+        }
+
+        var enUsPath = Path.Combine(langDirectoryPath, "en_us.json");
+        var jaJpPath = Path.Combine(langDirectoryPath, "ja_jp.json");
+
+        if (File.Exists(jaJpPath))
+        {
+            return;
+        }
+
+        if (!File.Exists(enUsPath))
+        {
+            return;
+        }
+
+        File.Copy(enUsPath, jaJpPath, overwrite: false);
     }
 }

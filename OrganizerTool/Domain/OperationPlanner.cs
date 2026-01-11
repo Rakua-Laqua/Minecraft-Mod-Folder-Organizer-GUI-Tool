@@ -68,6 +68,11 @@ public sealed class OperationPlanner
 
                     operations.Add(new MoveWithOverwriteOperation(entry, destPath));
                 }
+
+                if (options.EnsureJaJpFromEnUs)
+                {
+                    operations.Add(new EnsureJaJpFromEnUsOperation(dstBaseDir));
+                }
             }
 
             // Mod直下の lang 以外を全削除
@@ -160,6 +165,11 @@ public sealed class OperationPlanner
                     var fileName = Path.GetFileName(entryPath.Replace('/', Path.DirectorySeparatorChar));
                     var destPath = Path.Combine(dstBaseDir, fileName);
                     operations.Add(new ExtractZipEntryOperation(jarPath, entryPath, destPath));
+                }
+
+                if (options.EnsureJaJpFromEnUs)
+                {
+                    operations.Add(new EnsureJaJpFromEnUsOperation(dstBaseDir));
                 }
             }
         }
