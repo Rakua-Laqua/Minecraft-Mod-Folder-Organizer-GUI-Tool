@@ -1,7 +1,6 @@
 ﻿using System.Windows;
-using OrganizerTool.ViewModels;
 
-namespace OrganizerTool;
+namespace ModLangOrganizer;
 
 /// <summary>
 /// Interaction logic for MainWindow.xaml
@@ -11,6 +10,5 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        DataContext = new MainViewModel();
     }
 }
