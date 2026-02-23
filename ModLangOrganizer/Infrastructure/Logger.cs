@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text;
+using System.Windows;
+using System.Windows.Threading;
 using ModLangOrganizer.Models;
 
 namespace ModLangOrganizer.Infrastructure;
@@ -9,10 +11,16 @@ namespace ModLangOrganizer.Infrastructure;
 public sealed class Logger
 {
     private readonly object _lock = new();
+    private readonly Dispatcher? _dispatcher;
 
     public ObservableCollection<LogEntry> Entries { get; } = [];
 
     public event Action<LogEntry>? LogAdded;
+
+    public Logger()
+    {
+        _dispatcher = Application.Current?.Dispatcher;
+    }
 
     public void Info(string message) => Add(Models.LogLevel.Info, message);
     public void Warn(string message) => Add(Models.LogLevel.Warning, message);
@@ -21,6 +29,17 @@ public sealed class Logger
     private void Add(Models.LogLevel level, string message)
     {
         var entry = new LogEntry { Level = level, Message = message };
+        if (_dispatcher is not null && !_dispatcher.CheckAccess())
+        {
+            _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => AddOnDispatcher(entry)));
+            return;
+        }
+
+        AddOnDispatcher(entry);
+    }
+
+    private void AddOnDispatcher(LogEntry entry)
+    {
         lock (_lock)
         {
             Entries.Add(entry);
@@ -30,7 +49,21 @@ public sealed class Logger
 
     public void Clear()
     {
-        lock (_lock) { Entries.Clear(); }
+        if (_dispatcher is not null && !_dispatcher.CheckAccess())
+        {
+            _dispatcher.Invoke(ClearOnDispatcher);
+            return;
+        }
+
+        ClearOnDispatcher();
+    }
+
+    private void ClearOnDispatcher()
+    {
+        lock (_lock)
+        {
+            Entries.Clear();
+        }
     }
 
     /// <summary>ログをファイルに出力</summary>
