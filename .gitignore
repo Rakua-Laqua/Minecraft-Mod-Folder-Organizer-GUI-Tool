@@ -4,6 +4,10 @@ obj/
 
 # Publish outputs
 artifacts/
+アプリケーション/
+
+# Temporary build project files
+*_wpftmp.csproj
 
 # User-specific files
 *.user
