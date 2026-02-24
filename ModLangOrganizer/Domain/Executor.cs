@@ -5,7 +5,7 @@ using ModLangOrganizer.Models;
 
 namespace ModLangOrganizer.Domain;
 
-/// <summary>実行エンジン（jar展開 + lang配置 + クリーンアップ）</summary>
+/// <summary>Execution engine: extract jar, copy lang files, then cleanup temp.</summary>
 public sealed class Executor
 {
     private readonly ArchiveExtractor _extractor = new();
@@ -18,42 +18,56 @@ public sealed class Executor
         _logger = logger;
     }
 
-    /// <summary>実行計画に基づいてlang抽出を実行する</summary>
+    /// <summary>Execute per scan result and report per-jar progress.</summary>
     public Task<ExecutionResult> ExecuteAsync(
         List<JarScanResult> scanResults,
         string outputRoot,
         Models.Options options,
-        IProgress<(int current, int total, string jarName)> progress,
+        IProgress<ExecutionProgress> progress,
         CancellationToken ct)
     {
         var result = new ExecutionResult();
-        int processed = 0;
         int total = scanResults.Count;
 
-        foreach (var scan in scanResults)
+        for (int index = 0; index < scanResults.Count; index++)
         {
+            var scan = scanResults[index];
+            var current = index + 1;
+
             ct.ThrowIfCancellationRequested();
-            progress.Report((processed, total, scan.JarFileName));
+            progress.Report(new ExecutionProgress(
+                Index: index,
+                Current: current,
+                Total: total,
+                JarName: scan.JarFileName,
+                Stage: ExecutionProgressStage.Started));
 
             if (scan.Strategy == ProcessingStrategy.NoLang || scan.Integrity == JarIntegrity.Corrupted)
             {
                 result.SkipCount++;
                 _logger.Info($"スキップ: {scan.JarFileName} ({(scan.Integrity == JarIntegrity.Corrupted ? "破損" : "langなし")})");
-                processed++;
+                progress.Report(new ExecutionProgress(
+                    Index: index,
+                    Current: current,
+                    Total: total,
+                    JarName: scan.JarFileName,
+                    Stage: ExecutionProgressStage.Completed,
+                    FinalStatus: ModStatus.Skipped));
                 continue;
             }
 
             string? workDir = null;
             bool allCopySuccess = true;
+            var finalStatus = ModStatus.Success;
 
             try
             {
-                // 1. jar展開
+                // 1. Extract jar
                 workDir = _extractor.DetermineWorkDir(scan.JarFilePath);
-                _logger.Info($"展開開始: {scan.JarFileName} → {workDir}");
+                _logger.Info($"展開開始: {scan.JarFileName} -> {workDir}");
                 _extractor.ExtractSecure(scan.JarFilePath, workDir, ct);
 
-                // 2. 各lang候補を処理
+                // 2. Copy lang files
                 foreach (var candidate in scan.LangCandidates)
                 {
                     if (options.CancelGranularity == CancelGranularity.PerFile)
@@ -64,14 +78,13 @@ public sealed class Executor
 
                     if (!Directory.Exists(srcLang))
                     {
-                        _logger.Warn($"lang未検出（展開後）: {candidate.ModId} in {scan.JarFileName}");
+                        _logger.Warn($"lang未検出(展開後): {candidate.ModId} in {scan.JarFileName}");
                         continue;
                     }
 
                     _fs.EnsureDir(outLang);
                     _logger.Info($"ディレクトリ作成: {outLang}");
 
-                    // lang配下のファイルを再帰処理
                     var files = _fs.EnumerateFilesNoFollow(srcLang).ToList();
                     foreach (var srcFile in files)
                     {
@@ -85,14 +98,12 @@ public sealed class Executor
                         {
                             if (File.Exists(destPath))
                             {
-                                // 既存ファイル → 比較
                                 if (_fs.IsSameContent(srcFile, destPath))
                                 {
-                                    _logger.Info($"同一内容スキップ: {candidate.ModId}/lang/{relativePath}");
+                                    _logger.Info($"同一内容のためスキップ: {candidate.ModId}/lang/{relativePath}");
                                 }
                                 else
                                 {
-                                    // 競合コピー
                                     var sourceTag = Path.GetFileNameWithoutExtension(scan.JarFileName);
                                     var conflictName = _conflict.BuildConflictName(
                                         Path.GetFileName(destPath), sourceTag, Path.GetDirectoryName(destPath)!);
@@ -124,6 +135,7 @@ public sealed class Executor
                 {
                     result.WarningCount++;
                     _logger.Warn($"一部失敗あり: {scan.JarFileName}");
+                    finalStatus = ModStatus.Warning;
                 }
             }
             catch (OperationCanceledException)
@@ -136,10 +148,10 @@ public sealed class Executor
                 result.FailCount++;
                 result.Errors.Add($"{scan.JarFileName}: {ex.Message}");
                 _logger.Error($"失敗: {scan.JarFileName} - {ex.Message}");
+                finalStatus = ModStatus.Failed;
             }
             finally
             {
-                // クリーンアップ
                 if (workDir != null && Directory.Exists(workDir))
                 {
                     try
@@ -155,10 +167,14 @@ public sealed class Executor
                 }
             }
 
-            processed++;
-            progress.Report((processed, total, scan.JarFileName));
+            progress.Report(new ExecutionProgress(
+                Index: index,
+                Current: current,
+                Total: total,
+                JarName: scan.JarFileName,
+                Stage: ExecutionProgressStage.Completed,
+                FinalStatus: finalStatus));
 
-            // jar単位キャンセルチェック
             if (options.CancelGranularity == CancelGranularity.PerJar)
                 ct.ThrowIfCancellationRequested();
         }
@@ -166,7 +182,7 @@ public sealed class Executor
         return Task.FromResult(result);
     }
 
-    /// <summary>実行前バックアップ（Zip）を作成</summary>
+    /// <summary>Create zip backup before execution.</summary>
     public async Task CreateBackupAsync(string targetDir, CancellationToken ct)
     {
         var parentDir = Path.GetDirectoryName(targetDir) ?? targetDir;
@@ -178,7 +194,7 @@ public sealed class Executor
 
         await Task.Run(() =>
         {
-            System.IO.Compression.ZipFile.CreateFromDirectory(targetDir, zipPath);
+            ZipFile.CreateFromDirectory(targetDir, zipPath);
         }, ct);
 
         _logger.Info($"バックアップ完了: {zipPath}");
