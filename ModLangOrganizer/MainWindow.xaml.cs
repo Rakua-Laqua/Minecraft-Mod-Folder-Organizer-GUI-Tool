@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 
 namespace ModLangOrganizer;
 
@@ -10,5 +10,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Closed += (_, _) =>
+        {
+            if (DataContext is IDisposable disposable)
+                disposable.Dispose();
+        };
     }
 }
