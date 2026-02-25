@@ -97,12 +97,17 @@ public sealed partial class JarScanner
 
             var jarRootName = Path.GetFileNameWithoutExtension(result.JarFileName);
             var jarOutputRoot = Path.Combine(outputRoot, jarRootName);
+            var hasMultipleModIds = result.LangCandidates.Count > 1;
 
             foreach (var candidate in result.LangCandidates)
             {
-                var outputLangPath = Path.Combine(candidate.ModId, "lang");
-                var outLang = Path.Combine(jarOutputRoot, outputLangPath);
-                var logLangPath = $"{jarRootName}/{candidate.ModId}/lang";
+                var outputBasePath = hasMultipleModIds ? candidate.ModId : string.Empty;
+                var outLang = string.IsNullOrEmpty(outputBasePath)
+                    ? jarOutputRoot
+                    : Path.Combine(jarOutputRoot, outputBasePath);
+                var logLangPath = hasMultipleModIds
+                    ? $"{jarRootName}/{candidate.ModId}"
+                    : jarRootName;
 
                 result.PlannedOperations.Add(new PlannedOperation
                 {
