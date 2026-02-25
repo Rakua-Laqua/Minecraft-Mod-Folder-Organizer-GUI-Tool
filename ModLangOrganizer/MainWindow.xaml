@@ -188,6 +188,36 @@
                                 </StackPanel>
                             </StackPanel>
                         </Grid>
+
+                        <!-- Lang Fallback -->
+                        <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}" Margin="0,14,0,0" Padding="0,14,0,0">
+                            <StackPanel>
+                                <CheckBox Style="{StaticResource ModernCheckBox}"
+                                          Content="langフォールバック（ターゲットが無い場合、ソースからコピー生成）"
+                                          IsChecked="{Binding LangFallbackEnabled}"
+                                          Margin="0,0,0,10"/>
+                                <Grid IsEnabled="{Binding LangFallbackEnabled}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="コピー元ファイル名（拡張子なし）" Style="{StaticResource FieldLabel}"/>
+                                        <TextBox Style="{StaticResource ModernTextBox}"
+                                                 Text="{Binding LangFallbackSourceName, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="→" FontSize="18"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               VerticalAlignment="Bottom" Margin="14,0,14,6"/>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="コピー先ファイル名（拡張子なし）" Style="{StaticResource FieldLabel}"/>
+                                        <TextBox Style="{StaticResource ModernTextBox}"
+                                                 Text="{Binding LangFallbackTargetName, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Border>
 

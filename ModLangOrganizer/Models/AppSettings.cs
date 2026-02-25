@@ -8,6 +8,9 @@ public sealed class AppSettings
     public bool OutputRootSameAsTarget { get; set; } = true;
     public bool BackupZip { get; set; }
     public CancelGranularity CancelGranularity { get; set; } = CancelGranularity.PerJar;
+    public bool LangFallbackEnabled { get; set; }
+    public string LangFallbackSourceName { get; set; } = "en_us";
+    public string LangFallbackTargetName { get; set; } = "ja_jp";
 
     public AppSettings Clone()
     {
@@ -17,7 +20,10 @@ public sealed class AppSettings
             OutputRoot = OutputRoot,
             OutputRootSameAsTarget = OutputRootSameAsTarget,
             BackupZip = BackupZip,
-            CancelGranularity = CancelGranularity
+            CancelGranularity = CancelGranularity,
+            LangFallbackEnabled = LangFallbackEnabled,
+            LangFallbackSourceName = LangFallbackSourceName,
+            LangFallbackTargetName = LangFallbackTargetName
         };
     }
 }

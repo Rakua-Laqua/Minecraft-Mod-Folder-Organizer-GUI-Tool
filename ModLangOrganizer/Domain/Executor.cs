@@ -124,6 +124,22 @@ public sealed class Executor
                             _logger.Error($"コピー失敗: {candidate.ModId}/lang/{relativePath} - {ex.Message}");
                         }
                     }
+
+                    // Fallback: ターゲットファイルが無ければソースからコピー生成
+                    if (options.LangFallbackEnabled &&
+                        !string.IsNullOrWhiteSpace(options.LangFallbackSourceName) &&
+                        !string.IsNullOrWhiteSpace(options.LangFallbackTargetName))
+                    {
+                        try
+                        {
+                            ApplyLangFallback(outLang, options, candidate.ModId);
+                        }
+                        catch (Exception ex)
+                        {
+                            allCopySuccess = false;
+                            _logger.Error($"フォールバックコピー失敗: {candidate.ModId}/lang - {ex.Message}");
+                        }
+                    }
                 }
 
                 if (allCopySuccess)
@@ -198,5 +214,49 @@ public sealed class Executor
         }, ct);
 
         _logger.Info($"バックアップ完了: {zipPath}");
+    }
+
+    /// <summary>
+    /// 出力lang内にターゲットファイルが存在しなければソースファイルからコピーして生成する。
+    /// 例: ja_jp.json が無い場合、en_us.json → ja_jp.json としてコピー。
+    /// </summary>
+    private void ApplyLangFallback(string outLangDir, Models.Options options, string modId)
+    {
+        if (!Directory.Exists(outLangDir))
+            return;
+
+        var sourceName = options.LangFallbackSourceName.Trim();
+        var targetName = options.LangFallbackTargetName.Trim();
+
+        // outLangDir 直下のファイルについてチェック（再帰なし：lang直下のみ対象）
+        var allFiles = Directory.GetFiles(outLangDir);
+
+        // ソースファイルを拡張子込みで探す（例: en_us.json, en_us.lang）
+        var sourceFiles = allFiles
+            .Where(f => Path.GetFileNameWithoutExtension(f)
+                .Equals(sourceName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (sourceFiles.Count == 0)
+        {
+            _logger.Info($"フォールバック: ソース '{sourceName}' が見つかりません: {modId}/lang");
+            return;
+        }
+
+        foreach (var srcFile in sourceFiles)
+        {
+            var ext = Path.GetExtension(srcFile); // 例: .json
+            var targetFileName = targetName + ext;
+            var targetPath = Path.Combine(outLangDir, targetFileName);
+
+            if (File.Exists(targetPath))
+            {
+                _logger.Info($"フォールバック不要: {modId}/lang/{targetFileName} は既に存在します");
+                continue;
+            }
+
+            _fs.CopyFile(srcFile, targetPath);
+            _logger.Info($"フォールバックコピー: {modId}/lang/{Path.GetFileName(srcFile)} → {targetFileName}");
+        }
     }
 }

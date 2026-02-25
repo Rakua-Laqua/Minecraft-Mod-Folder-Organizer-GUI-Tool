@@ -16,6 +16,7 @@ public enum PlannedOperationType
     CreateDir,
     Copy,
     ConflictCopy,
+    FallbackCopy,
     Cleanup,
     Skip
 }

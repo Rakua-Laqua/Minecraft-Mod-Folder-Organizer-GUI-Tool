@@ -23,6 +23,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _outputRootSameAsTarget = true;
     private bool _backupZip;
     private CancelGranularity _cancelGranularity = CancelGranularity.PerJar;
+    private bool _langFallbackEnabled;
+    private string _langFallbackSourceName = "en_us";
+    private string _langFallbackTargetName = "ja_jp";
     private bool _isScanning;
     private bool _isExecuting;
     private bool _scanCompleted;
@@ -124,6 +127,36 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set
         {
             if (SetProperty(ref _cancelGranularity, value))
+                SaveSettings();
+        }
+    }
+
+    public bool LangFallbackEnabled
+    {
+        get => _langFallbackEnabled;
+        set
+        {
+            if (SetProperty(ref _langFallbackEnabled, value))
+                SaveSettings();
+        }
+    }
+
+    public string LangFallbackSourceName
+    {
+        get => _langFallbackSourceName;
+        set
+        {
+            if (SetProperty(ref _langFallbackSourceName, value ?? string.Empty))
+                SaveSettings();
+        }
+    }
+
+    public string LangFallbackTargetName
+    {
+        get => _langFallbackTargetName;
+        set
+        {
+            if (SetProperty(ref _langFallbackTargetName, value ?? string.Empty))
                 SaveSettings();
         }
     }
@@ -374,7 +407,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             $"以下の内容で実行します。\n" +
             $"- 対象jar: {langJars.Count}件\n" +
             $"- 出力先: {OutputRoot}\n" +
-            $"- バックアップ: {(BackupZip ? "あり" : "なし")}\n\n実行しますか？",
+            $"- バックアップ: {(BackupZip ? "あり" : "なし")}\n" +
+            $"- langフォールバック: {(LangFallbackEnabled ? $"あり ({LangFallbackSourceName} → {LangFallbackTargetName})" : "なし")}\n\n実行しますか？",
             "実行確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
             return;
@@ -392,7 +426,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var options = new Models.Options
             {
                 BackupZip = BackupZip,
-                CancelGranularity = CancelGranularity
+                CancelGranularity = CancelGranularity,
+                LangFallbackEnabled = LangFallbackEnabled,
+                LangFallbackSourceName = LangFallbackSourceName,
+                LangFallbackTargetName = LangFallbackTargetName
             };
 
             if (BackupZip)
@@ -511,6 +548,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             BackupZip = settings.BackupZip;
             CancelGranularity = settings.CancelGranularity;
+            LangFallbackEnabled = settings.LangFallbackEnabled;
+            LangFallbackSourceName = settings.LangFallbackSourceName;
+            LangFallbackTargetName = settings.LangFallbackTargetName;
 
             if (invalidSavedTarget)
             {
@@ -551,7 +591,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             OutputRoot = OutputRoot,
             OutputRootSameAsTarget = OutputRootSameAsTarget,
             BackupZip = BackupZip,
-            CancelGranularity = CancelGranularity
+            CancelGranularity = CancelGranularity,
+            LangFallbackEnabled = LangFallbackEnabled,
+            LangFallbackSourceName = LangFallbackSourceName,
+            LangFallbackTargetName = LangFallbackTargetName
         };
     }
 
