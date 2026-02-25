@@ -67,18 +67,24 @@ public sealed class Executor
                 _logger.Info($"展開開始: {scan.JarFileName} -> {workDir}");
                 _extractor.ExtractSecure(scan.JarFilePath, workDir, ct);
 
+                var jarRootName = Path.GetFileNameWithoutExtension(scan.JarFileName);
+                var jarOutputRoot = Path.Combine(outputRoot, jarRootName);
+
                 // 2. Copy lang files
                 foreach (var candidate in scan.LangCandidates)
                 {
                     if (options.CancelGranularity == CancelGranularity.PerFile)
                         ct.ThrowIfCancellationRequested();
 
-                    var srcLang = Path.Combine(workDir, "assets", candidate.ModId, "lang");
-                    var outLang = Path.Combine(outputRoot, candidate.ModId, "lang");
+                    var archiveLangPath = candidate.ArchiveLangPath.Replace('/', Path.DirectorySeparatorChar);
+                    var srcLang = Path.Combine(workDir, archiveLangPath);
+                    var outputLangPath = Path.Combine(candidate.ModId, "lang");
+                    var outLang = Path.Combine(jarOutputRoot, outputLangPath);
+                    var logLangPath = $"{jarRootName}/{candidate.ModId}/lang";
 
                     if (!Directory.Exists(srcLang))
                     {
-                        _logger.Warn($"lang未検出(展開後): {candidate.ModId} in {scan.JarFileName}");
+                        _logger.Warn($"lang未検出(展開後): {logLangPath} in {scan.JarFileName}");
                         continue;
                     }
 
@@ -100,28 +106,27 @@ public sealed class Executor
                             {
                                 if (_fs.IsSameContent(srcFile, destPath))
                                 {
-                                    _logger.Info($"同一内容のためスキップ: {candidate.ModId}/lang/{relativePath}");
+                                    _logger.Info($"同一内容のためスキップ: {logLangPath}/{relativePath}");
                                 }
                                 else
                                 {
-                                    var sourceTag = Path.GetFileNameWithoutExtension(scan.JarFileName);
                                     var conflictName = _conflict.BuildConflictName(
-                                        Path.GetFileName(destPath), sourceTag, Path.GetDirectoryName(destPath)!);
+                                        Path.GetFileName(destPath), jarRootName, Path.GetDirectoryName(destPath)!);
                                     var conflictPath = Path.Combine(Path.GetDirectoryName(destPath)!, conflictName);
                                     _fs.CopyFile(srcFile, conflictPath);
-                                    _logger.Warn($"競合コピー: {candidate.ModId}/lang/{conflictName}");
+                                    _logger.Warn($"競合コピー: {logLangPath}/{conflictName}");
                                 }
                             }
                             else
                             {
                                 _fs.CopyFile(srcFile, destPath);
-                                _logger.Info($"コピー: {candidate.ModId}/lang/{relativePath}");
+                                _logger.Info($"コピー: {logLangPath}/{relativePath}");
                             }
                         }
                         catch (Exception ex)
                         {
                             allCopySuccess = false;
-                            _logger.Error($"コピー失敗: {candidate.ModId}/lang/{relativePath} - {ex.Message}");
+                            _logger.Error($"コピー失敗: {logLangPath}/{relativePath} - {ex.Message}");
                         }
                     }
 
@@ -132,12 +137,12 @@ public sealed class Executor
                     {
                         try
                         {
-                            ApplyLangFallback(outLang, options, candidate.ModId);
+                            ApplyLangFallback(outLang, options, logLangPath);
                         }
                         catch (Exception ex)
                         {
                             allCopySuccess = false;
-                            _logger.Error($"フォールバックコピー失敗: {candidate.ModId}/lang - {ex.Message}");
+                            _logger.Error($"フォールバックコピー失敗: {logLangPath} - {ex.Message}");
                         }
                     }
                 }
@@ -220,7 +225,7 @@ public sealed class Executor
     /// 出力lang内にターゲットファイルが存在しなければソースファイルからコピーして生成する。
     /// 例: ja_jp.json が無い場合、en_us.json → ja_jp.json としてコピー。
     /// </summary>
-    private void ApplyLangFallback(string outLangDir, Models.Options options, string modId)
+    private void ApplyLangFallback(string outLangDir, Models.Options options, string langLogPath)
     {
         if (!Directory.Exists(outLangDir))
             return;
@@ -239,7 +244,7 @@ public sealed class Executor
 
         if (sourceFiles.Count == 0)
         {
-            _logger.Info($"フォールバック: ソース '{sourceName}' が見つかりません: {modId}/lang");
+            _logger.Info($"フォールバック: ソース '{sourceName}' が見つかりません: {langLogPath}");
             return;
         }
 
@@ -251,12 +256,12 @@ public sealed class Executor
 
             if (File.Exists(targetPath))
             {
-                _logger.Info($"フォールバック不要: {modId}/lang/{targetFileName} は既に存在します");
+                _logger.Info($"フォールバック不要: {langLogPath}/{targetFileName} は既に存在します");
                 continue;
             }
 
             _fs.CopyFile(srcFile, targetPath);
-            _logger.Info($"フォールバックコピー: {modId}/lang/{Path.GetFileName(srcFile)} → {targetFileName}");
+            _logger.Info($"フォールバックコピー: {langLogPath}/{Path.GetFileName(srcFile)} → {targetFileName}");
         }
     }
 }

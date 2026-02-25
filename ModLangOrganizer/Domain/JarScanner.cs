@@ -95,14 +95,19 @@ public sealed partial class JarScanner
                 Description = $"{result.JarFileName}: 一時展開"
             });
 
+            var jarRootName = Path.GetFileNameWithoutExtension(result.JarFileName);
+            var jarOutputRoot = Path.Combine(outputRoot, jarRootName);
+
             foreach (var candidate in result.LangCandidates)
             {
-                var outLang = Path.Combine(outputRoot, candidate.ModId, "lang");
+                var outputLangPath = Path.Combine(candidate.ModId, "lang");
+                var outLang = Path.Combine(jarOutputRoot, outputLangPath);
+                var logLangPath = $"{jarRootName}/{candidate.ModId}/lang";
 
                 result.PlannedOperations.Add(new PlannedOperation
                 {
                     Type = PlannedOperationType.CreateDir,
-                    Description = $"ディレクトリ作成: {candidate.ModId}/lang",
+                    Description = $"ディレクトリ作成: {logLangPath}",
                     DestinationPath = outLang
                 });
 
@@ -115,7 +120,7 @@ public sealed partial class JarScanner
                         result.PlannedOperations.Add(new PlannedOperation
                         {
                             Type = PlannedOperationType.ConflictCopy,
-                            Description = $"競合可能性: {candidate.ModId}/lang/{file}",
+                            Description = $"競合可能性: {logLangPath}/{file}",
                             DestinationPath = destPath
                         });
                     }
@@ -124,7 +129,7 @@ public sealed partial class JarScanner
                         result.PlannedOperations.Add(new PlannedOperation
                         {
                             Type = PlannedOperationType.Copy,
-                            Description = $"コピー: {candidate.ModId}/lang/{file}",
+                            Description = $"コピー: {logLangPath}/{file}",
                             DestinationPath = destPath
                         });
                     }
