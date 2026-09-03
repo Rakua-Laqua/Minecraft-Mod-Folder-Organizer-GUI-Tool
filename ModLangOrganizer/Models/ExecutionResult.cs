@@ -8,5 +8,9 @@ public sealed class ExecutionResult
     public int SkipCount { get; set; }
     public int FailCount { get; set; }
     public int CleanupFailCount { get; set; }
+    public int AddedFileCount { get; set; }
+    public int UpdatedFileCount { get; set; }
+    public int UnchangedFileCount { get; set; }
+    public int UnchangedJarCount { get; set; }
     public List<string> Errors { get; set; } = [];
 }

@@ -38,6 +38,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private FileSystemWatcher? _watcher;
     private bool _isApplyingSettings;
     private bool _disposed;
+    private string _activeActionLabel = "実行";
 
     // スキャン結果保持
     private List<JarScanResult> _scanResults = [];
@@ -50,6 +51,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         BrowseOutputCommand = new RelayCommand(BrowseOutput);
         ScanCommand = new AsyncRelayCommand(ScanAsync, CanScan);
         ExecuteCommand = new AsyncRelayCommand(ExecuteAsync, CanExecuteMainAction);
+        ImportCommand = new AsyncRelayCommand(ImportAsync, CanExecuteMainAction);
         CancelCommand = new RelayCommand(Cancel, CanCancel);
         SaveLogCommand = new AsyncRelayCommand(SaveLogAsync);
 
@@ -234,6 +236,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand BrowseOutputCommand { get; }
     public ICommand ScanCommand { get; }
     public ICommand ExecuteCommand { get; }
+    public ICommand ImportCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand SaveLogCommand { get; }
 
@@ -282,7 +285,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         var dialog = new OpenFolderDialog
         {
-            Title = "出力ルートフォルダを選択"
+            Title = "lang入出力ルートフォルダを選択"
         };
 
         if (dialog.ShowDialog() == true)
@@ -388,35 +391,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_scanResults.Count == 0)
             return;
 
-        // 事前整合性チェック
-        var staleJars = _snapshotValidator.Validate(_scanResults);
-        if (staleJars.Count > 0)
-        {
-            SnapshotFresh = false;
-            var names = string.Join(", ", staleJars);
-            StatusBarText = $"変更検出: {names} -> 再スキャンが必要です";
-            _logger.Warn($"jarファイル変更検出: {names}");
-            MessageBox.Show(
-                $"以下のjarファイルがスキャン後に変更されています。\n再スキャンしてください。\n\n{names}",
-                "再スキャンが必要", MessageBoxButton.OK, MessageBoxImage.Warning);
+        if (!EnsureScanSnapshotFresh())
             return;
-        }
 
         var langJars = _scanResults.Where(r => r.Strategy == ProcessingStrategy.LangFound).ToList();
+        var outputRoot = string.IsNullOrEmpty(OutputRoot) ? TargetDir : OutputRoot;
         if (MessageBox.Show(
-            $"以下の内容で実行します。\n" +
+            $"JARからlangファイルを抽出します。\n" +
             $"- 対象jar: {langJars.Count}件\n" +
-            $"- 出力先: {OutputRoot}\n" +
+            $"- 出力先: {outputRoot}\n" +
             $"- バックアップ: {(BackupZip ? "あり" : "なし")}\n" +
             $"- langフォールバック: {(LangFallbackEnabled ? $"あり ({LangFallbackSourceName} → {LangFallbackTargetName})" : "なし")}\n\n実行しますか？",
-            "実行確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            "lang抽出の確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
             return;
         }
 
         IsExecuting = true;
+        _activeActionLabel = "lang抽出";
         ProgressPercent = 0;
-        StatusBarText = "実行中...";
+        StatusBarText = "lang抽出中...";
         _cts = new CancellationTokenSource();
 
         var executor = new Executor(_logger);
@@ -438,39 +432,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 await executor.CreateBackupAsync(TargetDir, _cts.Token);
             }
 
-            var outputRoot = string.IsNullOrEmpty(OutputRoot) ? TargetDir : OutputRoot;
-
             var progress = new Progress<ExecutionProgress>(UpdateExecutionProgress);
 
             var result = await Task.Run(() =>
                 executor.ExecuteAsync(_scanResults, outputRoot, options, progress, _cts.Token),
                 _cts.Token);
 
-            StatusBarText = $"完了: 成功 {result.SuccessCount}, 警告 {result.WarningCount}, スキップ {result.SkipCount}, 失敗 {result.FailCount}, Cleanup失敗 {result.CleanupFailCount}";
-            ProgressText = "実行完了";
+            StatusBarText = $"lang抽出完了: 成功 {result.SuccessCount}, 警告 {result.WarningCount}, スキップ {result.SkipCount}, 失敗 {result.FailCount}, Cleanup失敗 {result.CleanupFailCount}";
+            ProgressText = "lang抽出完了";
             _logger.Info(StatusBarText);
 
             MessageBox.Show(
-                $"実行が完了しました。\n\n" +
+                $"langの抽出が完了しました。\n\n" +
                 $"成功: {result.SuccessCount}\n" +
                 $"警告: {result.WarningCount}\n" +
                 $"スキップ: {result.SkipCount}\n" +
                 $"失敗: {result.FailCount}\n" +
                 $"Cleanup失敗: {result.CleanupFailCount}",
-                "実行結果", MessageBoxButton.OK,
+                "lang抽出結果", MessageBoxButton.OK,
                 result.FailCount > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
         }
         catch (OperationCanceledException)
         {
             MarkProcessingModsAsSkipped();
-            StatusBarText = "実行がキャンセルされました";
-            _logger.Warn("実行がキャンセルされました");
+            StatusBarText = "lang抽出がキャンセルされました";
+            _logger.Warn("lang抽出がキャンセルされました");
         }
         catch (Exception ex)
         {
             MarkProcessingModsAsSkipped();
-            StatusBarText = $"実行エラー: {ex.Message}";
-            _logger.Error($"実行エラー: {ex.Message}");
+            StatusBarText = $"lang抽出エラー: {ex.Message}";
+            _logger.Error($"lang抽出エラー: {ex.Message}");
         }
         finally
         {
@@ -481,12 +473,144 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private async Task ImportAsync()
+    {
+        if (_scanResults.Count == 0)
+            return;
+
+        if (!EnsureScanSnapshotFresh())
+            return;
+
+        var outputRoot = string.IsNullOrEmpty(OutputRoot) ? TargetDir : OutputRoot;
+        var importer = new JarLangImporter(_logger);
+        var plan = importer.CreatePlan(_scanResults, outputRoot);
+
+        if (plan.SourceFileCount == 0)
+        {
+            StatusBarText = "JARへ反映できるlangファイルが見つかりません。";
+            _logger.Warn($"反映元ファイルなし: {outputRoot}");
+            MessageBox.Show(
+                $"反映元のlangファイルが見つかりません。\n\n" +
+                $"反映元: {outputRoot}\n" +
+                "先にlangを抽出するか、出力ルートを確認してください。",
+                "反映元なし", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var signatureWarning = plan.SignedJarCount > 0
+            ? $"\n- 署名付きjar: {plan.SignedJarCount}件（署名検証に影響する可能性があります）"
+            : string.Empty;
+        var conflictCopyNotice = plan.IgnoredConflictFileCount > 0
+            ? $"\n- 除外する競合コピー: {plan.IgnoredConflictFileCount}件"
+            : string.Empty;
+
+        if (MessageBox.Show(
+            $"外部のlangファイルをJARへ追加・更新します。\n" +
+            $"- 対象jar: {plan.ImportableJarCount}件\n" +
+            $"- 反映ファイル: {plan.SourceFileCount}件\n" +
+            $"- 反映元: {outputRoot}\n" +
+            $"- バックアップ: {(BackupZip ? "あり" : "なし（元に戻すには再取得が必要です）")}" +
+            signatureWarning +
+            conflictCopyNotice +
+            "\n\nJAR内の同一パスに異なる内容がある場合は更新されます。実行しますか？",
+            "JAR反映の確認", MessageBoxButton.YesNo,
+            plan.SignedJarCount > 0 || !BackupZip
+                ? MessageBoxImage.Warning
+                : MessageBoxImage.Question) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        IsExecuting = true;
+        _activeActionLabel = "JAR反映";
+        ProgressPercent = 0;
+        StatusBarText = "JARへ反映中...";
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            var options = new Models.Options
+            {
+                BackupZip = BackupZip,
+                CancelGranularity = CancelGranularity
+            };
+
+            if (BackupZip)
+            {
+                StatusBarText = "バックアップ作成中...";
+                var backupExecutor = new Executor(_logger);
+                await backupExecutor.CreateBackupAsync(TargetDir, _cts.Token);
+            }
+
+            var progress = new Progress<ExecutionProgress>(UpdateExecutionProgress);
+            var result = await Task.Run(() =>
+                importer.ImportAsync(plan, options, progress, _cts.Token),
+                _cts.Token);
+
+            StatusBarText =
+                $"JAR反映完了: 追加 {result.AddedFileCount}, 更新 {result.UpdatedFileCount}, " +
+                $"変更なし {result.UnchangedFileCount}, 警告 {result.WarningCount}, " +
+                $"スキップ {result.SkipCount}, 失敗 {result.FailCount}";
+            ProgressText = "JAR反映完了";
+            _logger.Info(StatusBarText);
+
+            MessageBox.Show(
+                $"JARへの反映が完了しました。\n\n" +
+                $"追加ファイル: {result.AddedFileCount}\n" +
+                $"更新ファイル: {result.UpdatedFileCount}\n" +
+                $"同一内容: {result.UnchangedFileCount}\n" +
+                $"変更なしjar: {result.UnchangedJarCount}\n" +
+                $"警告: {result.WarningCount}\n" +
+                $"スキップ: {result.SkipCount}\n" +
+                $"失敗: {result.FailCount}",
+                "JAR反映結果", MessageBoxButton.OK,
+                result.FailCount > 0 || result.WarningCount > 0
+                    ? MessageBoxImage.Warning
+                    : MessageBoxImage.Information);
+        }
+        catch (OperationCanceledException)
+        {
+            MarkProcessingModsAsSkipped();
+            StatusBarText = "JAR反映がキャンセルされました";
+            _logger.Warn("JAR反映がキャンセルされました");
+        }
+        catch (Exception ex)
+        {
+            MarkProcessingModsAsSkipped();
+            StatusBarText = $"JAR反映エラー: {ex.Message}";
+            _logger.Error($"JAR反映エラー: {ex.Message}");
+        }
+        finally
+        {
+            IsExecuting = false;
+            ScanCompleted = false;
+            _cts?.Dispose();
+            _cts = null;
+        }
+    }
+
+    private bool EnsureScanSnapshotFresh()
+    {
+        var staleJars = _snapshotValidator.Validate(_scanResults);
+        if (staleJars.Count == 0)
+            return true;
+
+        SnapshotFresh = false;
+        var names = string.Join(", ", staleJars);
+        StatusBarText = $"変更検出: {names} -> 再スキャンが必要です";
+        _logger.Warn($"jarファイル変更検出: {names}");
+        MessageBox.Show(
+            $"以下のjarファイルがスキャン後に変更されています。\n再スキャンしてください。\n\n{names}",
+            "再スキャンが必要", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return false;
+    }
+
     private void UpdateExecutionProgress(ExecutionProgress progress)
     {
         ProgressPercent = progress.Total > 0
             ? (double)progress.Current / progress.Total * 100
             : 0;
-        ProgressText = $"実行: {progress.Current}/{progress.Total} - {progress.JarName}";
+        ProgressText = $"{_activeActionLabel}: {progress.Current}/{progress.Total} - {progress.JarName}";
 
         if (progress.Index < 0 || progress.Index >= Mods.Count)
             return;

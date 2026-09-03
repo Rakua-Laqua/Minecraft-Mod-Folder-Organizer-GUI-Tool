@@ -17,6 +17,9 @@ public sealed class JarScanResult
     /// <summary>スナップショット</summary>
     public JarSnapshot? Snapshot { get; set; }
 
+    /// <summary>標準的なJAR署名ファイルを含むか</summary>
+    public bool HasSignature { get; set; }
+
     public string? ErrorMessage { get; set; }
 }
 
