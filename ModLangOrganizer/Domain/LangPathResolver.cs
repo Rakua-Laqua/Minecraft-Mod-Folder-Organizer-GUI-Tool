@@ -21,16 +21,19 @@ public static class LangPathResolver
         if (!string.IsNullOrWhiteSpace(relativeDirectory) && relativeDirectory != ".")
         {
             var segments = relativeDirectory.Split(
-                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
                 StringSplitOptions.RemoveEmptyEntries);
 
             if (segments.Length == 0 || segments.Any(s => s is "." or ".."))
                 throw new InvalidDataException($"無効なJAR相対フォルダです: {relativeDirectory}");
 
             foreach (var segment in segments)
+            {
                 ValidatePathSegment(segment, "JAR相対フォルダ名");
+                outputBase = Path.Combine(outputBase, segment);
+            }
 
-            outputBase = Path.GetFullPath(Path.Combine([fullOutputRoot, .. segments]));
+            outputBase = Path.GetFullPath(outputBase);
             EnsureContained(outputBase, fullOutputRoot);
         }
 
