@@ -182,6 +182,13 @@ public sealed class JarLangImporter
                 _logger.Warn($"JAR反映キャンセル: {scan.JarFileName}");
                 throw;
             }
+            catch (SignedJarModificationBlockedException ex)
+            {
+                result.FailCount++;
+                result.Errors.Add($"{scan.JarFileName}: 署名保護によりスキップ ({string.Join(", ", ex.BlockedEntries)})");
+                _logger.Warn($"[署名保護] {ex.Message} → 改ざん検知によるゲームクラッシュを防ぐためスキップしました。リソースパック機能のご利用を推奨します。");
+                finalStatus = ModStatus.Warning;
+            }
             catch (Exception ex)
             {
                 result.FailCount++;

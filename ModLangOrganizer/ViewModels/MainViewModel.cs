@@ -51,6 +51,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         BrowseOutputCommand = new RelayCommand(BrowseOutput);
         ScanCommand = new AsyncRelayCommand(ScanAsync, CanScan);
         ExecuteCommand = new AsyncRelayCommand(ExecuteAsync, CanExecuteMainAction);
+        ExportResourcePackCommand = new AsyncRelayCommand(ExportResourcePackAsync, CanExecuteMainAction);
         ImportCommand = new AsyncRelayCommand(ImportAsync, CanExecuteMainAction);
         CancelCommand = new RelayCommand(Cancel, CanCancel);
         SaveLogCommand = new AsyncRelayCommand(SaveLogAsync);
@@ -236,6 +237,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand BrowseOutputCommand { get; }
     public ICommand ScanCommand { get; }
     public ICommand ExecuteCommand { get; }
+    public ICommand ExportResourcePackCommand { get; }
     public ICommand ImportCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand SaveLogCommand { get; }
@@ -479,6 +481,116 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             IsExecuting = false;
             ScanCompleted = false; // 実行後は再スキャン前提
+            _cts?.Dispose();
+            _cts = null;
+        }
+    }
+
+    private async Task ExportResourcePackAsync()
+    {
+        if (_scanResults.Count == 0)
+            return;
+
+        if (!EnsureScanSnapshotFresh())
+            return;
+
+        var outputRoot = ResolveOutputRoot();
+        var importer = new JarLangImporter(_logger);
+        var plan = importer.CreatePlan(_scanResults, outputRoot);
+
+        if (plan.SourceFileCount == 0)
+        {
+            StatusBarText = "リソースパックに出力できるlangファイルが見つかりません。";
+            _logger.Warn($"リソースパック出力元ファイルなし: {outputRoot}");
+            MessageBox.Show(
+                $"反映元のlangファイルが見つかりません。\n\n" +
+                $"反映元: {outputRoot}\n" +
+                "先に［langを抽出］を実行して翻訳ファイルを準備してください。",
+                "出力元なし", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // リソースパック出力先の推測
+        string defaultParentDir = TargetDir;
+        var parent = Path.GetDirectoryName(TargetDir);
+        if (!string.IsNullOrEmpty(parent) && Directory.Exists(Path.Combine(parent, "resourcepacks")))
+        {
+            defaultParentDir = Path.Combine(parent, "resourcepacks");
+        }
+        else if (Directory.Exists(Path.Combine(TargetDir, "resourcepacks")))
+        {
+            defaultParentDir = Path.Combine(TargetDir, "resourcepacks");
+        }
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "リソースパックの配置先フォルダを選択（この中にModLangOrganizer Translationsを作成します）",
+            InitialDirectory = Directory.Exists(defaultParentDir) ? defaultParentDir : TargetDir
+        };
+
+        string targetRpFolder;
+        if (dialog.ShowDialog() == true)
+        {
+            targetRpFolder = Path.Combine(dialog.FolderName, "ModLangOrganizer Translations");
+        }
+        else
+        {
+            return;
+        }
+
+        if (MessageBox.Show(
+            $"翻訳ファイルをMinecraft用リソースパックとして出力します。\n" +
+            $"- 対象Mod: {plan.ImportableJarCount}件\n" +
+            $"- 翻訳ファイル: {plan.SourceFileCount}件\n" +
+            $"- 出力先: {targetRpFolder}\n" +
+            $"- pack_format: 15 (1.20.1用)\n\n" +
+            "※MODのJARファイルを改変しないため、ZIP破損や署名検証エラーの心配がありません。\n実行しますか？",
+            "リソースパック出力の確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        IsExecuting = true;
+        _activeActionLabel = "リソースパック出力";
+        ProgressPercent = 0;
+        StatusBarText = "リソースパック生成中...";
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            var builder = new ResourcePackBuilder();
+            var buildResult = await Task.Run(() =>
+                builder.BuildFolder(plan, targetRpFolder, packFormat: 15, description: "ModLangOrganizer Translations"),
+                _cts.Token);
+
+            StatusBarText = $"リソースパック生成完了: {buildResult.ModCount} Mod ({buildResult.FileCount} ファイル)";
+            ProgressText = "リソースパック出力完了";
+            _logger.Info($"リソースパック出力完了: {buildResult.DestinationPath} ({buildResult.ModCount} Mod, {buildResult.FileCount} ファイル)");
+
+            MessageBox.Show(
+                $"リソースパックの生成が完了しました！\n\n" +
+                $"Mod数: {buildResult.ModCount}\n" +
+                $"ファイル数: {buildResult.FileCount}\n" +
+                $"出力先: {buildResult.DestinationPath}\n\n" +
+                "Minecraftの［設定］→［リソースパック］で有効化してください。",
+                "リソースパック出力完了", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusBarText = "リソースパック出力がキャンセルされました";
+            _logger.Warn("リソースパック出力がキャンセルされました");
+        }
+        catch (Exception ex)
+        {
+            StatusBarText = $"リソースパック出力エラー: {ex.Message}";
+            _logger.Error($"リソースパック出力エラー: {ex.Message}");
+            MessageBox.Show(
+                $"リソースパック生成中にエラーが発生しました:\n{ex.Message}",
+                "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsExecuting = false;
             _cts?.Dispose();
             _cts = null;
         }

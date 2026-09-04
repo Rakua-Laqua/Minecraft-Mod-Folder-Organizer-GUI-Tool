@@ -1,7 +1,11 @@
 # CHANGELOG
 
-## Unreleased
+## v2.3.0 - 2026-09-04
 ### Added
+- 翻訳ファイルをMinecraftリソースパックとして自動構築する「リソースパック出力（推奨）」機能を追加（MODのJARを一切改変しないため、ZIP破損や署名検証エラーのリスクがゼロ）
+- UIに「📦 リソースパック出力（推奨）」ボタンを追加し、出力先として `resourcepacks` フォルダを自動提案
+- 署名付きJARの署名対象ファイル（MANIFEST.MFや.SFにダイジェストがあるエントリ）に対する改変をブロックし、改ざん検知によるクラッシュを防止する安全保護を追加
+- JAR出力直後にZIPバイナリヘッダーを走査し、Java `ZipInputStream` で破損と判定される不正エントリ（`STORED` かつ `Data Descriptor bit`）を検出する互換性バリデーションを追加
 - 選択した親フォルダ配下のJARをサブフォルダまで再帰スキャンするように対応
 - スキャン結果に親フォルダからのJAR相対パスを保持し、同名JARを別カテゴリでも安全に区別
 - 元JARの相対フォルダ構造をlang入出力側にも保持
@@ -9,6 +13,8 @@
 - JSONとlegacy `.lang` のマージ時に、新規キーはJAR側から追加、JARから削除された旧キーは出力から削除するように対応
 
 ### Changed
+- 「JARへ反映」の内部処理を `ZipArchiveMode.Update` から `ZipArchiveMode.Create` による安全な一時アーカイブ再構築方式へ全面刷新（.NET 8で空エントリをSTORED化する際にData Descriptor bitが残存し、JavaでZipExceptionとなる不具合を解消）
+- 画面表示とアセンブリのバージョンを 2.3.0 へ更新
 - 「親フォルダと同じ場所をlang入出力ルートにする」がONの場合、`_lang_output` を挟まず親フォルダそのものを入出力ルートとして使用
 - `_backup`、旧既定の `_lang_output`、指定した出力ルート配下とreparse pointを再帰JAR探索から除外
 - FileSystemWatcherをサブフォルダ監視に対応し、除外フォルダ内の変更は無視
