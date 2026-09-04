@@ -74,17 +74,15 @@ public sealed class TranslationMappingUpdater
                     continue;
                 }
 
-                // 候補JARのうち、entry.ArchivePath に合致する LangCandidates を持っているか照合
-                JarScanResult? matchedJar = null;
-                if (candidateJars.Count == 1)
-                {
-                    matchedJar = candidateJars[0];
-                }
-                else
-                {
-                    matchedJar = candidateJars.FirstOrDefault(j =>
-                        j.LangCandidates.Any(c => entry.ArchivePath.StartsWith(c.ArchiveLangPath.TrimStart('/'), StringComparison.OrdinalIgnoreCase)));
-                }
+                var normalizedArchivePath = entry.ArchivePath.TrimStart('/').Replace('\\', '/');
+
+                // 候補数に関わらず、新JARが entry.ArchivePath に対応する有効な LangCandidate を持っていることを必須条件とする
+                var matchedJar = candidateJars.FirstOrDefault(j =>
+                    j.LangCandidates.Any(c =>
+                    {
+                        var candidateRoot = c.ArchiveLangPath.TrimStart('/').TrimEnd('/') + "/";
+                        return normalizedArchivePath.StartsWith(candidateRoot, StringComparison.OrdinalIgnoreCase);
+                    }));
 
                 if (matchedJar != null)
                 {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -21,42 +21,66 @@ public sealed class TranslationMappingStore
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ModLangOrganizer", "workspaces");
 
     /// <summary>
-    /// targetRoot の正規化パスから一意なワークスペースID（SHA-256の先頭16文字）を生成する。
+    /// targetRoot と outputRoot の正規化パスから一意なワークスペースID（SHA-256の先頭16文字）を生成する。
     /// </summary>
-    public static string ComputeWorkspaceId(string targetRoot)
+    public static string ComputeWorkspaceId(string targetRoot, string? outputRoot = null)
     {
         if (string.IsNullOrWhiteSpace(targetRoot))
             return "default";
 
-        var normalized = Path.GetFullPath(targetRoot)
+        var normTarget = Path.GetFullPath(targetRoot)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             .ToLowerInvariant();
 
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        string key;
+        if (!string.IsNullOrWhiteSpace(outputRoot))
+        {
+            var normOutput = Path.GetFullPath(outputRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .ToLowerInvariant();
+            key = normTarget + "|" + normOutput;
+        }
+        else
+        {
+            key = normTarget;
+        }
+
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(key));
         return Convert.ToHexString(hashBytes)[..16];
     }
 
     /// <summary>
     /// ワークスペースのディレクトリパスを取得する。
     /// </summary>
-    public static string GetWorkspaceDirectory(string targetRoot)
+    public static string GetWorkspaceDirectory(string targetRoot, string? outputRoot = null)
     {
-        var workspaceId = ComputeWorkspaceId(targetRoot);
+        var workspaceId = ComputeWorkspaceId(targetRoot, outputRoot);
         return Path.Combine(BaseWorkspacesDir, workspaceId);
     }
 
-    public static string GetMappingPath(string targetRoot)
+    public static string GetMappingPath(string targetRoot, string? outputRoot = null)
     {
-        return Path.Combine(GetWorkspaceDirectory(targetRoot), "mapping.json");
+        return Path.Combine(GetWorkspaceDirectory(targetRoot, outputRoot), "mapping.json");
     }
 
     /// <summary>
-    /// 指定された targetRoot の mapping.json を読み込む。存在しないか破損時は新規作成またはバックアップから復旧する。
+    /// 指定された targetRoot (および outputRoot) の mapping.json を読み込む。存在しないか破損時は新規作成またはバックアップから復旧する。
     /// </summary>
-    public WorkspaceMapping Load(string targetRoot)
+    public WorkspaceMapping Load(string targetRoot, string? outputRoot = null)
     {
-        var mappingPath = GetMappingPath(targetRoot);
+        var mappingPath = GetMappingPath(targetRoot, outputRoot);
         var backupPath = mappingPath + ".bak";
+
+        // 新しいペアのパスが存在しない場合、後方互換として targetRoot 単体パスを確認
+        if (!File.Exists(mappingPath) && !string.IsNullOrWhiteSpace(outputRoot))
+        {
+            var legacyPath = GetMappingPath(targetRoot, null);
+            if (File.Exists(legacyPath))
+            {
+                mappingPath = legacyPath;
+                backupPath = legacyPath + ".bak";
+            }
+        }
 
         if (File.Exists(mappingPath))
         {
@@ -67,6 +91,8 @@ public sealed class TranslationMappingStore
                 if (mapping != null)
                 {
                     mapping.TargetRoot = targetRoot;
+                    if (!string.IsNullOrWhiteSpace(outputRoot))
+                        mapping.OutputRoot = outputRoot;
                     return mapping;
                 }
             }
@@ -82,6 +108,8 @@ public sealed class TranslationMappingStore
                         if (bakMapping != null)
                         {
                             bakMapping.TargetRoot = targetRoot;
+                            if (!string.IsNullOrWhiteSpace(outputRoot))
+                                bakMapping.OutputRoot = outputRoot;
                             return bakMapping;
                         }
                     }
@@ -93,6 +121,7 @@ public sealed class TranslationMappingStore
         return new WorkspaceMapping
         {
             TargetRoot = targetRoot,
+            OutputRoot = outputRoot ?? string.Empty,
             Entries = []
         };
     }
@@ -101,15 +130,18 @@ public sealed class TranslationMappingStore
     /// mapping.json をアトミックに永続保存する。
     /// 一時ファイルに完全出力したのちに置換し、直前の正常データを .bak に残す。
     /// </summary>
-    public void Save(string targetRoot, WorkspaceMapping mapping)
+    public void Save(string targetRoot, string? outputRoot, WorkspaceMapping mapping)
     {
-        var workspaceDir = GetWorkspaceDirectory(targetRoot);
+        var workspaceDir = GetWorkspaceDirectory(targetRoot, outputRoot);
         Directory.CreateDirectory(workspaceDir);
 
         mapping.TargetRoot = targetRoot;
+        if (!string.IsNullOrWhiteSpace(outputRoot))
+            mapping.OutputRoot = outputRoot;
+
         var json = JsonSerializer.Serialize(mapping, JsonOptions);
 
-        var mappingPath = GetMappingPath(targetRoot);
+        var mappingPath = GetMappingPath(targetRoot, outputRoot);
         var tempPath = mappingPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         var backupPath = mappingPath + ".bak";
 
@@ -141,4 +173,7 @@ public sealed class TranslationMappingStore
             }
         }
     }
+
+    public void Save(string targetRoot, WorkspaceMapping mapping) =>
+        Save(targetRoot, mapping.OutputRoot, mapping);
 }

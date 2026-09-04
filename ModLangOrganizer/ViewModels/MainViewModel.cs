@@ -448,11 +448,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             try
             {
-                _currentMapping = _mappingStore.Load(TargetDir);
+                _currentMapping = _mappingStore.Load(TargetDir, outputRoot);
                 var updatedMappingCount = _mappingUpdater.UpdateJarReferences(_currentMapping, _scanResults);
                 if (updatedMappingCount > 0)
                 {
-                    _mappingStore.Save(TargetDir, _currentMapping);
+                    _mappingStore.Save(TargetDir, outputRoot, _currentMapping);
                     _logger.Info($"MOD更新を検出し、{updatedMappingCount}件の言語マッピングを自動更新しました。");
                 }
             }
@@ -500,7 +500,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             $"JARからlangファイルを抽出します。\n" +
             $"- 対象jar: {langJars.Count}件\n" +
             $"- 出力先: {outputRoot}\n" +
-            $"- 元フォルダの相対構造: 保持\n" +
+            $"- 編集フォルダ: Mod IDごとに整理（既存の抽出フォルダは維持）\n" +
             $"- バックアップ: {(BackupZip ? "あり" : "なし")}\n" +
             $"- langフォールバック: {(LangFallbackEnabled ? $"あり ({LangFallbackSourceName} → {LangFallbackTargetName})" : "なし")}\n\n実行しますか？",
             "lang抽出の確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
@@ -535,7 +535,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             var progress = new Progress<ExecutionProgress>(UpdateExecutionProgress);
 
-            _currentMapping ??= _mappingStore.Load(TargetDir);
+            _currentMapping = _mappingStore.Load(TargetDir, outputRoot);
 
             var result = await Task.Run(() =>
                 executor.ExecuteAsync(_scanResults, outputRoot, options, progress, _cts.Token, _currentMapping),
@@ -543,7 +543,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             try
             {
-                _mappingStore.Save(TargetDir, _currentMapping);
+                _mappingStore.Save(TargetDir, outputRoot, _currentMapping);
                 _logger.Info($"言語マッピング保存完了: {_currentMapping.Entries.Count}件");
             }
             catch (Exception ex)
@@ -596,7 +596,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
 
         var outputRoot = ResolveOutputRoot();
-        _currentMapping ??= _mappingStore.Load(TargetDir);
+        _currentMapping = _mappingStore.Load(TargetDir, outputRoot);
         var importer = new JarLangImporter(_logger);
         var plan = importer.CreatePlan(_scanResults, outputRoot, _currentMapping);
 
@@ -733,7 +733,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
 
         var outputRoot = ResolveOutputRoot();
-        _currentMapping ??= _mappingStore.Load(TargetDir);
+        _currentMapping = _mappingStore.Load(TargetDir, outputRoot);
+
+        if (_currentMapping.Entries.Count == 0)
+        {
+            StatusBarText = "有効な言語マッピング (mapping.json) が見つかりません。";
+            _logger.Warn($"言語マッピングなし: {TargetDir} (OutputRoot: {outputRoot})");
+            MessageBox.Show(
+                $"言語マッピング (mapping.json) が存在しません。\n\n" +
+                $"対象フォルダ: {TargetDir}\n" +
+                $"lang出力先: {outputRoot}\n\n" +
+                "安全のため推測反映は行いません。\n先に［langを抽出］を実行してファイルを関連付けてください。",
+                "マッピング情報なし", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         var importer = new JarLangImporter(_logger);
         var plan = importer.CreatePlan(_scanResults, outputRoot, _currentMapping);
 
@@ -761,7 +775,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             $"- 対象jar: {plan.ImportableJarCount}件\n" +
             $"- 反映ファイル: {plan.SourceFileCount}件\n" +
             $"- 反映元: {outputRoot}\n" +
-            $"- 元フォルダの相対構造: 保持\n" +
+            $"- 反映基準: mapping.json に基づく正確なJAR内パス\n" +
             $"- バックアップ: {(BackupZip ? "あり" : "なし（元に戻すには再取得が必要です）")}" +
             signatureWarning +
             conflictCopyNotice +

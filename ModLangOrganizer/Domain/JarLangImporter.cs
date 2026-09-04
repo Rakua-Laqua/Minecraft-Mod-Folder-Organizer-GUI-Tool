@@ -29,103 +29,80 @@ public sealed class JarLangImporter
             var jarPlan = new JarImportPlan { ScanResult = scan };
             batchPlan.JarPlans.Add(jarPlan);
             jarPlanMap[scan.RelativeJarPath.Replace('\\', '/')] = jarPlan;
-            jarPlanMap.TryAdd(scan.JarFileName, jarPlan);
         }
 
-        // mapping がある場合は mapping を唯一の正解として計画を構築
-        if (mapping != null && mapping.Entries.Count > 0)
+        // mapping が無い・空の場合は推測反映を行わず安全に終了する（mappingを唯一の正解とする）
+        if (mapping == null || mapping.Entries.Count == 0)
         {
-            foreach (var entry in mapping.Entries)
-            {
-                var normalizedJarPath = entry.JarRelativePath.Replace('\\', '/');
-                if (!jarPlanMap.TryGetValue(normalizedJarPath, out var jarPlan) &&
-                    !jarPlanMap.TryGetValue(Path.GetFileName(normalizedJarPath), out jarPlan))
-                {
-                    continue;
-                }
-
-                var scan = jarPlan.ScanResult;
-                if (scan.Strategy == ProcessingStrategy.NoLang ||
-                    scan.Integrity == JarIntegrity.Corrupted)
-                {
-                    continue;
-                }
-
-                var sourcePath = Path.GetFullPath(Path.Combine(outputRoot, entry.EditPath.Replace('/', Path.DirectorySeparatorChar)));
-                if (!File.Exists(sourcePath))
-                {
-                    continue;
-                }
-
-                if (IsConflictCopy(sourcePath))
-                {
-                    jarPlan.IgnoredConflictFiles.Add(sourcePath);
-                    continue;
-                }
-
-                if (!IsSupportedLangFile(sourcePath))
-                {
-                    continue;
-                }
-
-                if (!jarPlan.Files.Any(f => f.ArchivePath.Equals(entry.ArchivePath, StringComparison.OrdinalIgnoreCase)))
-                {
-                    jarPlan.Files.Add(new JarImportFile(sourcePath, entry.ArchivePath));
-                }
-            }
-
+            _logger.Warn("有効な言語マッピング (mapping.json) が存在しないため、JAR反映計画の生成をスキップしました。先に［langを抽出］を実行してください。");
             return batchPlan;
         }
 
-        // フォールバック: mapping がない場合は従来のフォルダ探索
-        foreach (var scan in scanResults)
+        var normalizedOutputRoot = Path.GetFullPath(outputRoot);
+
+        foreach (var entry in mapping.Entries)
         {
-            var jarPlan = jarPlanMap[scan.RelativeJarPath.Replace('\\', '/')];
+            var normalizedJarPath = entry.JarRelativePath.Replace('\\', '/');
+            // 相対JARパスの完全一致のみ受け付ける（同名JAR誤爆防止）
+            if (!jarPlanMap.TryGetValue(normalizedJarPath, out var jarPlan))
+            {
+                continue;
+            }
+
+            var scan = jarPlan.ScanResult;
             if (scan.Strategy == ProcessingStrategy.NoLang ||
                 scan.Integrity == JarIntegrity.Corrupted)
             {
                 continue;
             }
 
-            foreach (var candidate in scan.LangCandidates)
+            // 1. EditPath のパストラバーサル検証
+            var combinedPath = Path.Combine(normalizedOutputRoot, entry.EditPath.Replace('/', Path.DirectorySeparatorChar));
+            var fullSourcePath = Path.GetFullPath(combinedPath);
+            if (!fullSourcePath.StartsWith(normalizedOutputRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                !fullSourcePath.Equals(normalizedOutputRoot, StringComparison.OrdinalIgnoreCase))
             {
-                try
-                {
-                    var sourceDirectory = LangPathResolver.GetExternalLangDirectory(
-                        outputRoot,
-                        scan,
-                        candidate);
+                _logger.Warn($"マッピングのEditPathが出力ルート外を指しているため除外: {entry.EditPath}");
+                continue;
+            }
 
-                    if (!Directory.Exists(sourceDirectory))
-                    {
-                        jarPlan.MissingSourceDirectories.Add(sourceDirectory);
-                        continue;
-                    }
+            if (!File.Exists(fullSourcePath))
+            {
+                continue;
+            }
 
-                    // lang直下の翻訳ファイルだけを反映する。
-                    // サブディレクトリを再帰すると、旧出力の lang/ を assets/.../lang/lang/ として再投入してしまう。
-                    foreach (var sourcePath in _fs.EnumerateFilesTopLevelNoFollow(sourceDirectory)
-                                 .Where(IsSupportedLangFile)
-                                 .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
-                    {
-                        if (IsConflictCopy(sourcePath))
-                        {
-                            jarPlan.IgnoredConflictFiles.Add(sourcePath);
-                            continue;
-                        }
+            // 2. 拡張子検証 (.json / .lang)
+            if (!IsSupportedLangFile(fullSourcePath))
+            {
+                _logger.Warn($"非対応の拡張子のためJAR反映から除外: {entry.EditPath}");
+                continue;
+            }
 
-                        var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
-                        var archivePath = LangPathResolver.BuildArchivePath(candidate, relativePath);
-                        if (!jarPlan.Files.Any(f => f.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            jarPlan.Files.Add(new JarImportFile(sourcePath, archivePath));
-                        }
-                    }
-                }
-                catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-                {
-                    jarPlan.PlanningErrors.Add($"{candidate.ModId}: {ex.Message}");
-                }
+            // 3. 競合コピーの除外
+            if (IsConflictCopy(fullSourcePath))
+            {
+                jarPlan.IgnoredConflictFiles.Add(fullSourcePath);
+                continue;
+            }
+
+            // 4. ArchivePath の厳格検証（対象JARで検出済みの ArchiveLangPath 配下に収まっているか）
+            var normalizedArchivePath = entry.ArchivePath.TrimStart('/').Replace('\\', '/');
+            var isValidArchiveLang = scan.LangCandidates.Any(candidate =>
+            {
+                var candidateLangRoot = candidate.ArchiveLangPath.TrimStart('/').TrimEnd('/') + "/";
+                return normalizedArchivePath.StartsWith(candidateLangRoot, StringComparison.OrdinalIgnoreCase);
+            });
+
+            if (!isValidArchiveLang)
+            {
+                _logger.Warn($"マッピングのArchivePathがJAR内の検出langパスと一致しないため除外: {scan.RelativeJarPath} -> {entry.ArchivePath}");
+                continue;
+            }
+
+            // 5. 反映リストに追加（重複排除）
+            if (!jarPlan.Files.Any(f => f.ArchivePath.Equals(normalizedArchivePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                jarPlan.Files.Add(new JarImportFile(fullSourcePath, normalizedArchivePath));
             }
         }
 

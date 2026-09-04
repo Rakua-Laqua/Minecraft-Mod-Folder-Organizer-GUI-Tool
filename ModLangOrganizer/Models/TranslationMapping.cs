@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace ModLangOrganizer.Models;
@@ -10,6 +10,7 @@ public sealed class WorkspaceMapping
 {
     public int SchemaVersion { get; set; } = 1;
     public string TargetRoot { get; set; } = string.Empty;
+    public string OutputRoot { get; set; } = string.Empty;
     public List<TranslationMappingEntry> Entries { get; set; } = [];
 }
 

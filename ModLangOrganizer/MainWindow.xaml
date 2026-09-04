@@ -60,7 +60,7 @@
                                FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource TextPrimaryBrush}"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="v2.4.0" FontSize="11"
+                    <TextBlock Text="v2.4.1" FontSize="11"
                                Foreground="{StaticResource TextMutedBrush}"
                                VerticalAlignment="Center" Margin="10,2,0,0"/>
                 </StackPanel>

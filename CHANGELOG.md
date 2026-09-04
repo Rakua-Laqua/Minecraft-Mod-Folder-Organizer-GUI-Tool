@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v2.4.1 - 2026-09-05
+### Fixed
+- **推測反映フォールバックの完全廃止**: mapping が存在しない・空の状態で「JARへ反映」を実行した際に従来の推測フォルダ探索へ逆戻りする問題を解消。mapping を唯一の正解とし、未関連付け状態での推測書き込みを完全に遮断して抽出を促す案内を表示するように改善
+- **mapping エントリの防御的パスバリデーション強化**:
+  - `EditPath` のパストラバーサル（`../` による出力ルート外参照）を遮断
+  - `JarRelativePath` の完全一致のみを採用し、別ディレクトリの同名JARへの誤爆を防止
+  - `ArchivePath` が該当 JAR の検出済み `ArchiveLangPath` 配下に収まっているかを検証し、無効パスや不正エントリの混入を遮断
+  - `.json` / `.lang` 以外の非対応拡張子ファイルを安全に除外
+- **既存 fallback 生成済みファイル（ja_jp.json 等）の mapping 登録漏れ解消**: JAR に存在せず手動翻訳や過去生成で出力フォルダに既に存在していた翻訳ファイルについて、再抽出時に mapping 登録をスキップしてしまい次回 JAR 反映から脱落する不具合を修正
+- **MOD更新追従条件の厳格化**: 同一 ModId の候補 JAR が1件のみの場合でも、新 JAR 内に該当 `ArchivePath` に合致する有効な `ArchiveLangPath` が存在することを必須条件とし、lang 構造が異なる新バージョンへの誤付け替えを防止
+- **TargetRoot と OutputRoot のペアによる workspace 安全分離**: ワークスペースID（SHA-256）の生成キーおよび `WorkspaceMapping` に `OutputRoot` を紐付け。同一 MOD フォルダに対して異なる lang 出力先を指定した場合でも、別個の独立した mapping として管理され誤反映を防止
+- **確認ダイアログ文言の是正**: 「元フォルダの相対構造: 保持」という旧文言を、現在の実態に合わせて「編集フォルダ: Mod IDごとに整理（既存の抽出フォルダは維持）」および「反映基準: mapping.json に基づく正確なJAR内パス」に修正
+
 ## v2.4.0 - 2026-09-05
 ### Added
 - **永続 mapping.json の導入**: 翻訳編集ファイルと元JARのアーカイブ内パスを1対1で記録・管理するマッピング機能を追加（`%LOCALAPPDATA%\ModLangOrganizer\workspaces\<workspaceId>\mapping.json`）。アトミック書き込みおよび `.bak` 自動バックアップに対応

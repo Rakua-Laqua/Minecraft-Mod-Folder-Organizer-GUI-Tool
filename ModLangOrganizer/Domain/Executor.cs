@@ -312,6 +312,12 @@ public sealed class Executor
             if (File.Exists(targetPath))
             {
                 _logger.Info($"フォールバック不要: {langLogPath}/{targetFileName} は既に存在します");
+
+                if (mapping != null)
+                {
+                    var archivePath = LangPathResolver.BuildArchivePath(candidate, targetFileName);
+                    RegisterMappingEntry(mapping, outputRoot, targetPath, scan.RelativeJarPath, candidate.ModId, archivePath);
+                }
                 continue;
             }
 
