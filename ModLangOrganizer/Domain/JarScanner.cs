@@ -39,6 +39,7 @@ public sealed partial class JarScanner
             // アーカイブ内エントリ一覧を取得（展開せずに）
             var entries = _extractor.ListEntries(jarPath);
             result.Integrity = JarIntegrity.OK;
+            result.HasSignature = entries.Any(IsJarSignatureEntry);
 
             // lang候補を検出
             var langEntries = entries
@@ -63,7 +64,7 @@ public sealed partial class JarScanner
                     var match = LangPathRegex().Match(e);
                     return new { ModId = match.Groups[1].Value, Entry = e };
                 })
-                .GroupBy(x => x.ModId);
+                .GroupBy(x => x.ModId, StringComparer.OrdinalIgnoreCase);
 
             foreach (var group in grouped)
             {
@@ -95,19 +96,10 @@ public sealed partial class JarScanner
                 Description = $"{result.JarFileName}: 一時展開"
             });
 
-            var jarRootName = Path.GetFileNameWithoutExtension(result.JarFileName);
-            var jarOutputRoot = Path.Combine(outputRoot, jarRootName);
-            var hasMultipleModIds = result.LangCandidates.Count > 1;
-
             foreach (var candidate in result.LangCandidates)
             {
-                var outputBasePath = hasMultipleModIds ? candidate.ModId : string.Empty;
-                var outLang = string.IsNullOrEmpty(outputBasePath)
-                    ? jarOutputRoot
-                    : Path.Combine(jarOutputRoot, outputBasePath);
-                var logLangPath = hasMultipleModIds
-                    ? $"{jarRootName}/{candidate.ModId}"
-                    : jarRootName;
+                var outLang = LangPathResolver.GetExternalLangDirectory(outputRoot, result, candidate);
+                var logLangPath = LangPathResolver.GetDisplayPath(result, candidate);
 
                 result.PlannedOperations.Add(new PlannedOperation
                 {
@@ -160,5 +152,19 @@ public sealed partial class JarScanner
         }
 
         return result;
+    }
+
+    private static bool IsJarSignatureEntry(string entryPath)
+    {
+        var normalized = entryPath.Replace('\\', '/');
+        if (!normalized.StartsWith("META-INF/", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
+        return fileName.StartsWith("SIG-", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".SF", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".RSA", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".DSA", StringComparison.OrdinalIgnoreCase) ||
+               fileName.EndsWith(".EC", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -102,11 +102,15 @@ public sealed class FileSystemService
     public IEnumerable<string> EnumerateFilesNoFollow(string dir, string pattern = "*")
     {
         if (!Directory.Exists(dir)) yield break;
+        if (IsReparsePoint(dir)) yield break;
 
         var dirInfo = new DirectoryInfo(dir);
 
         foreach (var file in dirInfo.EnumerateFiles(pattern, SearchOption.TopDirectoryOnly))
+        {
+            if (IsReparsePoint(file.FullName)) continue;
             yield return file.FullName;
+        }
 
         foreach (var sub in dirInfo.EnumerateDirectories("*", SearchOption.TopDirectoryOnly))
         {

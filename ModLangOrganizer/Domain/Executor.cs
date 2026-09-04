@@ -68,8 +68,6 @@ public sealed class Executor
                 _extractor.ExtractSecure(scan.JarFilePath, workDir, ct);
 
                 var jarRootName = Path.GetFileNameWithoutExtension(scan.JarFileName);
-                var jarOutputRoot = Path.Combine(outputRoot, jarRootName);
-                var hasMultipleModIds = scan.LangCandidates.Count > 1;
 
                 // 2. Copy lang files
                 foreach (var candidate in scan.LangCandidates)
@@ -79,13 +77,8 @@ public sealed class Executor
 
                     var archiveLangPath = candidate.ArchiveLangPath.Replace('/', Path.DirectorySeparatorChar);
                     var srcLang = Path.Combine(workDir, archiveLangPath);
-                    var outputBasePath = hasMultipleModIds ? candidate.ModId : string.Empty;
-                    var outLang = string.IsNullOrEmpty(outputBasePath)
-                        ? jarOutputRoot
-                        : Path.Combine(jarOutputRoot, outputBasePath);
-                    var logLangPath = hasMultipleModIds
-                        ? $"{jarRootName}/{candidate.ModId}"
-                        : jarRootName;
+                    var outLang = LangPathResolver.GetExternalLangDirectory(outputRoot, scan, candidate);
+                    var logLangPath = LangPathResolver.GetDisplayPath(scan, candidate);
 
                     if (!Directory.Exists(srcLang))
                     {

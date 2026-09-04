@@ -60,7 +60,7 @@
                                FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource TextPrimaryBrush}"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="v1.0" FontSize="11"
+                    <TextBlock Text="v2.2.0" FontSize="11"
                                Foreground="{StaticResource TextMutedBrush}"
                                VerticalAlignment="Center" Margin="10,2,0,0"/>
                 </StackPanel>
@@ -123,7 +123,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0">
-                                <TextBlock Text="出力ルート" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock Text="lang入出力ルート" Style="{StaticResource FieldLabel}"/>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -142,9 +142,13 @@
                         </Grid>
 
                         <CheckBox Style="{StaticResource ModernCheckBox}"
-                                  Content="親フォルダと同じ場所に出力する"
+                                  Content="親フォルダと同じ場所をlang入出力ルートにする"
                                   IsChecked="{Binding OutputRootSameAsTarget}"
                                   Margin="0,8,0,0"/>
+                        <TextBlock Margin="0,8,0,0"
+                                   FontSize="11.5"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Text="抽出したファイルを編集後、再スキャンして［JARへ反映］を実行します。既存の同一パスは更新されます。"/>
                     </StackPanel>
                 </Border>
 
@@ -193,7 +197,7 @@
                         <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}" Margin="0,14,0,0" Padding="0,14,0,0">
                             <StackPanel>
                                 <CheckBox Style="{StaticResource ModernCheckBox}"
-                                          Content="langフォールバック（ターゲットが無い場合、ソースからコピー生成）"
+                                          Content="langフォールバック（抽出時、ターゲットが無い場合にソースからコピー生成）"
                                           IsChecked="{Binding LangFallbackEnabled}"
                                           Margin="0,0,0,10"/>
                                 <Grid IsEnabled="{Binding LangFallbackEnabled}">
@@ -229,8 +233,8 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
                     <Button Grid.Column="0" Content="🔍  スキャン"
@@ -238,7 +242,7 @@
                             Command="{Binding ScanCommand}"
                             Margin="0,0,10,0"/>
 
-                    <Button Grid.Column="1" Content="▶  実行"
+                    <Button Grid.Column="1" Content="📤  langを抽出"
                             Style="{StaticResource PrimaryButton}"
                             Command="{Binding ExecuteCommand}"
                             Margin="0,0,10,0">
@@ -250,12 +254,24 @@
                         </Button.Background>
                     </Button>
 
-                    <Button Grid.Column="2" Content="⏹  キャンセル"
+                    <Button Grid.Column="2" Content="📥  JARへ反映"
+                            Style="{StaticResource PrimaryButton}"
+                            Command="{Binding ImportCommand}"
+                            Margin="0,0,10,0">
+                        <Button.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="{StaticResource ColorWarning}" Offset="0"/>
+                                <GradientStop Color="#FFD97706" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Button.Background>
+                    </Button>
+
+                    <Button Grid.Column="3" Content="⏹  キャンセル"
                             Style="{StaticResource DangerButton}"
                             Command="{Binding CancelCommand}"/>
 
                     <!-- Rescan warning -->
-                    <Border Grid.Column="3" Margin="16,0,0,0"
+                    <Border Grid.Column="4" Margin="16,0,0,0"
                             CornerRadius="{StaticResource RadiusMd}"
                             Background="#30F59E0B" Padding="14,8"
                             VerticalAlignment="Center"
@@ -348,7 +364,7 @@
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="lang" Binding="{Binding LangCountDisplay}" Width="60"/>
                                 <DataGridTextColumn Header="方針" Binding="{Binding StrategyDisplay}" Width="90"/>
-                                <DataGridTextColumn Header="予定操作" Binding="{Binding OperationSummary}" Width="*"/>
+                                <DataGridTextColumn Header="抽出予定" Binding="{Binding OperationSummary}" Width="*"/>
                                 <DataGridTemplateColumn Header="スナップショット" Width="110">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
