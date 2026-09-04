@@ -48,7 +48,10 @@ public sealed class JarLangImporter
                         continue;
                     }
 
-                    foreach (var sourcePath in _fs.EnumerateFilesNoFollow(sourceDirectory)
+                    // lang直下の翻訳ファイルだけを反映する。
+                    // サブディレクトリを再帰すると、旧出力の lang/ を assets/.../lang/lang/ として再投入してしまう。
+                    foreach (var sourcePath in _fs.EnumerateFilesTopLevelNoFollow(sourceDirectory)
+                                 .Where(IsSupportedLangFile)
                                  .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
                     {
                         if (IsConflictCopy(sourcePath))
@@ -232,4 +235,8 @@ public sealed class JarLangImporter
         return Path.GetFileNameWithoutExtension(path)
             .Contains(".conflict.", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsSupportedLangFile(string path) =>
+        path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".lang", StringComparison.OrdinalIgnoreCase);
 }

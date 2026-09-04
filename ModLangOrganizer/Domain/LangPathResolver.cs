@@ -29,7 +29,7 @@ public static class LangPathResolver
         if (scan.LangCandidates.Count <= 1)
             return jarOutputRoot;
 
-        ValidatePathSegment(candidate.ModId, "modid");
+        ValidatePathSegment(candidate.ModId, "lang候補キー");
         var candidateRoot = Path.GetFullPath(Path.Combine(jarOutputRoot, candidate.ModId));
         EnsureContained(candidateRoot, jarOutputRoot);
         return candidateRoot;
@@ -45,14 +45,34 @@ public static class LangPathResolver
 
     public static string BuildArchivePath(LangCandidate candidate, string relativePath)
     {
-        ValidatePathSegment(candidate.ModId, "modid");
+        var archiveLangPath = NormalizeArchiveLangPath(candidate.ArchiveLangPath);
 
         var normalizedRelative = relativePath.Replace('\\', '/').TrimStart('/');
         var segments = normalizedRelative.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length == 0 || segments.Any(s => s is "." or ".."))
             throw new InvalidDataException($"無効なlang相対パスです: {relativePath}");
 
-        return $"assets/{candidate.ModId}/lang/{string.Join('/', segments)}";
+        return $"{archiveLangPath}/{string.Join('/', segments)}";
+    }
+
+    private static string NormalizeArchiveLangPath(string archiveLangPath)
+    {
+        if (string.IsNullOrWhiteSpace(archiveLangPath) ||
+            archiveLangPath.StartsWith('/') ||
+            archiveLangPath.Contains('\\'))
+        {
+            throw new InvalidDataException($"無効なJAR内langパスです: {archiveLangPath}");
+        }
+
+        var segments = archiveLangPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0 ||
+            segments.Any(s => s is "." or "..") ||
+            !segments[^1].Equals("lang", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"無効なJAR内langパスです: {archiveLangPath}");
+        }
+
+        return string.Join('/', segments);
     }
 
     private static void ValidatePathSegment(string value, string label)

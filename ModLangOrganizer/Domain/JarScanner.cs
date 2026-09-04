@@ -1,18 +1,14 @@
 using System.IO;
-using System.Text.RegularExpressions;
 using ModLangOrganizer.Infrastructure;
 using ModLangOrganizer.Models;
 
 namespace ModLangOrganizer.Domain;
 
 /// <summary>jarスキャナ: jarファイルを解析してlang候補を検出する</summary>
-public sealed partial class JarScanner
+public sealed class JarScanner
 {
     private readonly ArchiveExtractor _extractor = new();
     private readonly FileSystemService _fs = new();
-
-    [GeneratedRegex(@"^assets/([^/]+)/lang/", RegexOptions.IgnoreCase)]
-    private static partial Regex LangPathRegex();
 
     /// <summary>指定ディレクトリ直下のjar一覧を取得</summary>
     public List<string> EnumerateJars(string targetDir)
@@ -38,15 +34,20 @@ public sealed partial class JarScanner
 
             // アーカイブ内エントリ一覧を取得（展開せずに）
             var entries = _extractor.ListEntries(jarPath);
+            var normalizedEntries = entries
+                .Select(NormalizeArchivePath)
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .ToList();
+
             result.Integrity = JarIntegrity.OK;
             result.HasSignature = entries.Any(IsJarSignatureEntry);
 
-            // lang候補を検出
-            var langEntries = entries
-                .Where(e => LangPathRegex().IsMatch(e))
-                .ToList();
+            // lang候補を検出。
+            // assets/<modid>/lang に限定せず、JARルートや任意階層の .../lang/*.json|*.lang も対象にする。
+            // lang/lang のように既存候補の配下へネストした候補は、誤反映で生成された重複として除外する。
+            var langRoots = DetectLangRoots(normalizedEntries);
 
-            if (langEntries.Count == 0)
+            if (langRoots.Count == 0)
             {
                 result.Strategy = ProcessingStrategy.NoLang;
                 result.PlannedOperations.Add(new PlannedOperation
@@ -57,34 +58,43 @@ public sealed partial class JarScanner
                 return result;
             }
 
-            // modid別にグループ化
-            var grouped = langEntries
-                .Select(e =>
-                {
-                    var match = LangPathRegex().Match(e);
-                    return new { ModId = match.Groups[1].Value, Entry = e };
-                })
-                .GroupBy(x => x.ModId, StringComparer.OrdinalIgnoreCase);
+            var usedOutputKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var group in grouped)
+            foreach (var archiveLangPath in langRoots)
             {
-                var candidate = new LangCandidate
-                {
-                    ModId = group.Key,
-                    ArchiveLangPath = $"assets/{group.Key}/lang"
-                };
+                var modId = TryGetAssetsModId(archiveLangPath);
+                var outputKey = MakeUniqueOutputKey(
+                    BuildOutputKey(archiveLangPath, modId),
+                    usedOutputKeys);
 
-                foreach (var item in group)
-                {
-                    // ディレクトリエントリは除外（ファイルのみ）
-                    if (!item.Entry.EndsWith('/'))
-                    {
-                        var relativePath = item.Entry[(candidate.ArchiveLangPath.Length + 1)..];
-                        candidate.Files.Add(relativePath);
-                    }
-                }
+                var prefix = archiveLangPath.TrimEnd('/') + "/";
+                var files = normalizedEntries
+                    .Where(e => IsDirectLangFile(e, prefix))
+                    .Select(e => e[prefix.Length..])
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(e => e, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
-                result.LangCandidates.Add(candidate);
+                if (files.Count == 0)
+                    continue;
+
+                result.LangCandidates.Add(new LangCandidate
+                {
+                    ModId = outputKey,
+                    ArchiveLangPath = archiveLangPath,
+                    Files = files
+                });
+            }
+
+            if (result.LangCandidates.Count == 0)
+            {
+                result.Strategy = ProcessingStrategy.NoLang;
+                result.PlannedOperations.Add(new PlannedOperation
+                {
+                    Type = PlannedOperationType.Skip,
+                    Description = $"{result.JarFileName}: langなし → スキップ"
+                });
+                return result;
             }
 
             result.Strategy = ProcessingStrategy.LangFound;
@@ -152,6 +162,139 @@ public sealed partial class JarScanner
         }
 
         return result;
+    }
+
+    private static List<string> DetectLangRoots(IEnumerable<string> entries)
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in entries)
+        {
+            var root = TryGetLangRoot(entry);
+            if (root != null)
+                roots.Add(root);
+        }
+
+        // 浅い候補を優先し、その配下にある lang/lang などのネスト候補を除外する。
+        var ordered = roots
+            .OrderBy(GetArchivePathDepth)
+            .ThenBy(r => r, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var accepted = new List<string>();
+        foreach (var root in ordered)
+        {
+            if (accepted.Any(parent => IsDescendantArchivePath(root, parent)))
+                continue;
+
+            accepted.Add(root);
+        }
+
+        return accepted
+            .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string? TryGetLangRoot(string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry) ||
+            entry.EndsWith('/') ||
+            entry.StartsWith('/') ||
+            !IsSupportedLangFile(entry))
+        {
+            return null;
+        }
+
+        var parts = entry.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || parts.Any(p => p is "." or ".."))
+            return null;
+
+        if (!parts[^2].Equals("lang", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return string.Join('/', parts.Take(parts.Length - 1));
+    }
+
+    private static bool IsDirectLangFile(string entry, string prefix)
+    {
+        if (!entry.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var relative = entry[prefix.Length..];
+        return relative.Length > 0 &&
+               !relative.Contains('/') &&
+               IsSupportedLangFile(relative);
+    }
+
+    private static bool IsSupportedLangFile(string path) =>
+        path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".lang", StringComparison.OrdinalIgnoreCase);
+
+    private static string? TryGetAssetsModId(string archiveLangPath)
+    {
+        var parts = archiveLangPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 3 &&
+            parts[0].Equals("assets", StringComparison.OrdinalIgnoreCase) &&
+            parts[2].Equals("lang", StringComparison.OrdinalIgnoreCase))
+        {
+            return parts[1];
+        }
+
+        return null;
+    }
+
+    private static string BuildOutputKey(string archiveLangPath, string? modId)
+    {
+        if (!string.IsNullOrWhiteSpace(modId))
+            return SanitizeOutputKey(modId);
+
+        var parts = archiveLangPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var rawKey = parts.Length >= 2 ? parts[^2] : "root";
+        return SanitizeOutputKey(rawKey);
+    }
+
+    private static string SanitizeOutputKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return "lang";
+
+        var invalid = Path.GetInvalidFileNameChars();
+        var chars = key
+            .Select(ch => invalid.Contains(ch) || ch == '/' || ch == '\\' ? '_' : ch)
+            .ToArray();
+
+        var sanitized = new string(chars);
+        return string.IsNullOrWhiteSpace(sanitized) ? "lang" : sanitized;
+    }
+
+    private static string MakeUniqueOutputKey(string baseKey, HashSet<string> used)
+    {
+        if (used.Add(baseKey))
+            return baseKey;
+
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = $"{baseKey}-{suffix}";
+            if (used.Add(candidate))
+                return candidate;
+        }
+    }
+
+    private static int GetArchivePathDepth(string path) =>
+        path.Count(ch => ch == '/') + 1;
+
+    private static bool IsDescendantArchivePath(string path, string parent)
+    {
+        var prefix = parent.TrimEnd('/') + "/";
+        return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeArchivePath(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        while (normalized.Contains("//", StringComparison.Ordinal))
+            normalized = normalized.Replace("//", "/", StringComparison.Ordinal);
+        return normalized;
     }
 
     private static bool IsJarSignatureEntry(string entryPath)
