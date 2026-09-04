@@ -42,7 +42,82 @@ public static class LangPathResolver
         return jarOutputRoot;
     }
 
+    /// <summary>
+    /// 外部編集用ディレクトリを決定する。
+    /// 1. 既存の mapping に該当エントリがあればその親ディレクトリ（過去の抽出パス）を維持
+    /// 2. 既存のディスク上に旧形式フォルダ（<outputRoot>/<jarRootName>...）が存在すれば互換性のためそれを維持
+    /// 3. 新規抽出の場合は、基本形 `<outputRoot>/<modId>` とする
+    /// 4. 同じ ModId を持つ候補が他のJARにも存在する場合は、衝突回避のため `<outputRoot>/<modId>__<jarRootName>` とする
+    /// </summary>
+    public static string ResolveEditDirectory(
+        string outputRoot,
+        JarScanResult scan,
+        LangCandidate candidate,
+        WorkspaceMapping? existingMapping = null,
+        IReadOnlyList<JarScanResult>? allScans = null)
+    {
+        if (string.IsNullOrWhiteSpace(outputRoot))
+            throw new ArgumentException("出力ルートが指定されていません。", nameof(outputRoot));
+
+        var fullOutputRoot = Path.GetFullPath(outputRoot);
+
+        // 1. 既存 mapping の確認
+        if (existingMapping != null)
+        {
+            var matchedEntry = existingMapping.Entries.FirstOrDefault(e =>
+                e.JarRelativePath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase) &&
+                e.ModId.Equals(candidate.ModId, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedEntry != null && !string.IsNullOrEmpty(matchedEntry.EditPath))
+            {
+                var fullEditPath = Path.Combine(fullOutputRoot, matchedEntry.EditPath.Replace('/', Path.DirectorySeparatorChar));
+                var dirFromMapping = Path.GetDirectoryName(fullEditPath);
+                if (!string.IsNullOrEmpty(dirFromMapping))
+                {
+                    EnsureContained(dirFromMapping, fullOutputRoot);
+                    return dirFromMapping;
+                }
+            }
+        }
+
+        // 2. 旧形式（<outputRoot>/<jarRootName>...）のフォルダが既にディスク上に存在するか確認
+        var legacyDir = GetLegacyExternalLangDirectory(outputRoot, scan, candidate);
+        if (Directory.Exists(legacyDir))
+        {
+            return legacyDir;
+        }
+
+        // 3. 新規抽出: <outputRoot>/<modId>（ModId重複時は衝突回避）
+        var modIdSegment = SanitizeDirectoryName(candidate.ModId);
+        var isDuplicateModId = allScans != null && allScans
+            .Where(s => !s.RelativeJarPath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase))
+            .Any(s => s.LangCandidates.Any(c => c.ModId.Equals(candidate.ModId, StringComparison.OrdinalIgnoreCase)));
+
+        string targetFolderName;
+        if (isDuplicateModId)
+        {
+            var jarRootName = SanitizeDirectoryName(Path.GetFileNameWithoutExtension(scan.JarFileName));
+            targetFolderName = $"{modIdSegment}__{jarRootName}";
+        }
+        else
+        {
+            targetFolderName = modIdSegment;
+        }
+
+        var resultDir = Path.GetFullPath(Path.Combine(fullOutputRoot, targetFolderName));
+        EnsureContained(resultDir, fullOutputRoot);
+        return resultDir;
+    }
+
     public static string GetExternalLangDirectory(
+        string outputRoot,
+        JarScanResult scan,
+        LangCandidate candidate)
+    {
+        return ResolveEditDirectory(outputRoot, scan, candidate);
+    }
+
+    public static string GetLegacyExternalLangDirectory(
         string outputRoot,
         JarScanResult scan,
         LangCandidate candidate)
@@ -130,5 +205,20 @@ public static class LangPathResolver
         {
             throw new InvalidDataException($"出力ルート外のパスは使用できません: {path}");
         }
+    }
+
+    public static string SanitizeDirectoryName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "unknown";
+
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sb = new System.Text.StringBuilder(name.Length);
+        foreach (var ch in name)
+        {
+            sb.Append(invalidChars.Contains(ch) || ch is '/' or '\\' ? '_' : ch);
+        }
+        var sanitized = sb.ToString().Trim('.', ' ', '_');
+        return string.IsNullOrWhiteSpace(sanitized) ? "mod" : sanitized;
     }
 }

@@ -24,7 +24,8 @@ public sealed class Executor
         string outputRoot,
         Models.Options options,
         IProgress<ExecutionProgress> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        WorkspaceMapping? mapping = null)
     {
         var result = new ExecutionResult();
         int total = scanResults.Count;
@@ -76,7 +77,7 @@ public sealed class Executor
 
                     var archiveLangPath = candidate.ArchiveLangPath.Replace('/', Path.DirectorySeparatorChar);
                     var srcLang = Path.Combine(workDir, archiveLangPath);
-                    var outLang = LangPathResolver.GetExternalLangDirectory(outputRoot, scan, candidate);
+                    var outLang = LangPathResolver.ResolveEditDirectory(outputRoot, scan, candidate, mapping, scanResults);
                     var logLangPath = LangPathResolver.GetDisplayPath(scan, candidate);
 
                     if (!Directory.Exists(srcLang))
@@ -120,16 +121,12 @@ public sealed class Executor
                             {
                                 _fs.CopyFile(srcFile, destPath);
                                 _logger.Info($"コピー: {logLangPath}/{relativePath}");
-                                continue;
                             }
-
-                            if (_fs.IsSameContent(srcFile, destPath))
+                            else if (_fs.IsSameContent(srcFile, destPath))
                             {
                                 _logger.Info($"同一内容のためスキップ: {logLangPath}/{relativePath}");
-                                continue;
                             }
-
-                            if (IsTranslationMergeTarget(relativePath, options.LangFallbackTargetName))
+                            else if (IsTranslationMergeTarget(relativePath, options.LangFallbackTargetName))
                             {
                                 var mergeResult = _langMerger.MergeTargetFromJar(srcFile, destPath);
 
@@ -167,6 +164,12 @@ public sealed class Executor
                                 _langMerger.OverwriteFromJar(srcFile, destPath);
                                 _logger.Info($"JAR内容で上書き: {logLangPath}/{relativePath}");
                             }
+
+                            if (mapping != null)
+                            {
+                                var archivePath = LangPathResolver.BuildArchivePath(candidate, relativePath);
+                                RegisterMappingEntry(mapping, outputRoot, destPath, scan.RelativeJarPath, candidate.ModId, archivePath);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -182,7 +185,7 @@ public sealed class Executor
                     {
                         try
                         {
-                            ApplyLangFallback(outLang, options, logLangPath);
+                            ApplyLangFallback(outLang, options, logLangPath, candidate, scan, outputRoot, mapping);
                         }
                         catch (Exception ex)
                         {
@@ -270,7 +273,14 @@ public sealed class Executor
     /// 出力lang内にターゲットファイルが存在しなければソースファイルからコピーして生成する。
     /// 例: ja_jp.json が無い場合、en_us.json → ja_jp.json としてコピー。
     /// </summary>
-    private void ApplyLangFallback(string outLangDir, Models.Options options, string langLogPath)
+    private void ApplyLangFallback(
+        string outLangDir,
+        Models.Options options,
+        string langLogPath,
+        LangCandidate candidate,
+        JarScanResult scan,
+        string outputRoot,
+        WorkspaceMapping? mapping)
     {
         if (!Directory.Exists(outLangDir))
             return;
@@ -307,6 +317,47 @@ public sealed class Executor
 
             _fs.CopyFile(srcFile, targetPath);
             _logger.Info($"フォールバックコピー: {langLogPath}/{Path.GetFileName(srcFile)} → {targetFileName}");
+
+            if (mapping != null)
+            {
+                var archivePath = LangPathResolver.BuildArchivePath(candidate, targetFileName);
+                RegisterMappingEntry(mapping, outputRoot, targetPath, scan.RelativeJarPath, candidate.ModId, archivePath);
+            }
+        }
+    }
+
+    private static void RegisterMappingEntry(
+        WorkspaceMapping mapping,
+        string outputRoot,
+        string fullFilePath,
+        string jarRelativePath,
+        string modId,
+        string archivePath)
+    {
+        var editRelativePath = Path.GetRelativePath(outputRoot, fullFilePath).Replace('\\', '/');
+        var existing = mapping.Entries.FirstOrDefault(e =>
+            e.EditPath.Equals(editRelativePath, StringComparison.OrdinalIgnoreCase) ||
+            (e.JarRelativePath.Equals(jarRelativePath, StringComparison.OrdinalIgnoreCase) &&
+             e.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase)));
+
+        if (existing != null)
+        {
+            existing.EditPath = editRelativePath;
+            existing.JarRelativePath = jarRelativePath;
+            existing.ModId = modId;
+            existing.ArchivePath = archivePath;
+            existing.LastUpdated = DateTimeOffset.Now;
+        }
+        else
+        {
+            mapping.Entries.Add(new TranslationMappingEntry
+            {
+                EditPath = editRelativePath,
+                JarRelativePath = jarRelativePath,
+                ModId = modId,
+                ArchivePath = archivePath,
+                LastUpdated = DateTimeOffset.Now
+            });
         }
     }
 

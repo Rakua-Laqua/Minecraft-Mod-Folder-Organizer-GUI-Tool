@@ -60,7 +60,7 @@
                                FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource TextPrimaryBrush}"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="v2.3.2" FontSize="11"
+                    <TextBlock Text="v2.4.0" FontSize="11"
                                Foreground="{StaticResource TextMutedBrush}"
                                VerticalAlignment="Center" Margin="10,2,0,0"/>
                 </StackPanel>
@@ -145,10 +145,34 @@
                                   Content="親フォルダと同じ場所をlang入出力ルートにする"
                                   IsChecked="{Binding OutputRootSameAsTarget}"
                                   Margin="0,8,0,0"/>
+
+                        <!-- Resource Pack Output Root (Optional) -->
+                        <Grid Margin="0,10,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="リソースパック出力先（任意 / 未指定時は自動判定）" Style="{StaticResource FieldLabel}"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
+                                             Text="{Binding ResourcePackOutputRoot, UpdateSourceTrigger=PropertyChanged}"
+                                             Margin="0,0,8,0"/>
+                                    <Button Grid.Column="1" Content="参照..."
+                                            Style="{StaticResource SecondaryButton}"
+                                            Command="{Binding BrowseResourcePackOutputCommand}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+
                         <TextBlock Margin="0,8,0,0"
                                    FontSize="11.5"
                                    Foreground="{StaticResource TextMutedBrush}"
-                                   Text="抽出したファイルを編集後、再スキャンして［JARへ反映］を実行します。既存の同一パスは更新されます。"/>
+                                   Text="抽出したファイルを編集後、再スキャンして［JARへ反映］を実行します。mapping.jsonに基づき各JARへ正確に反映されます。"/>
                     </StackPanel>
                 </Border>
 
@@ -265,19 +289,7 @@
                         </Button.Background>
                     </Button>
 
-                    <Button Grid.Column="2" Content="📦  リソースパック出力（推奨）"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding ExportResourcePackCommand}"
-                            Margin="0,0,10,0">
-                        <Button.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="#FF3B82F6" Offset="0"/>
-                                <GradientStop Color="#FF1D4ED8" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Button.Background>
-                    </Button>
-
-                    <Button Grid.Column="3" Content="📥  JARへ反映"
+                    <Button Grid.Column="2" Content="📥  JARへ反映"
                             Style="{StaticResource PrimaryButton}"
                             Command="{Binding ImportCommand}"
                             Margin="0,0,10,0">
@@ -285,6 +297,18 @@
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop Color="{StaticResource ColorWarning}" Offset="0"/>
                                 <GradientStop Color="#FFD97706" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Button.Background>
+                    </Button>
+
+                    <Button Grid.Column="3" Content="📦  リソースパック出力"
+                            Style="{StaticResource PrimaryButton}"
+                            Command="{Binding ExportResourcePackCommand}"
+                            Margin="0,0,10,0">
+                        <Button.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#FF3B82F6" Offset="0"/>
+                                <GradientStop Color="#FF1D4ED8" Offset="1"/>
                             </LinearGradientBrush>
                         </Button.Background>
                     </Button>

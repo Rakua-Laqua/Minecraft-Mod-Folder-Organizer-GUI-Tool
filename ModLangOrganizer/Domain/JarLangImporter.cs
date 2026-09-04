@@ -18,15 +18,69 @@ public sealed class JarLangImporter
 
     public JarImportBatchPlan CreatePlan(
         IReadOnlyList<JarScanResult> scanResults,
-        string outputRoot)
+        string outputRoot,
+        WorkspaceMapping? mapping = null)
     {
         var batchPlan = new JarImportBatchPlan();
+        var jarPlanMap = new Dictionary<string, JarImportPlan>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var scan in scanResults)
         {
             var jarPlan = new JarImportPlan { ScanResult = scan };
             batchPlan.JarPlans.Add(jarPlan);
+            jarPlanMap[scan.RelativeJarPath.Replace('\\', '/')] = jarPlan;
+            jarPlanMap.TryAdd(scan.JarFileName, jarPlan);
+        }
 
+        // mapping がある場合は mapping を唯一の正解として計画を構築
+        if (mapping != null && mapping.Entries.Count > 0)
+        {
+            foreach (var entry in mapping.Entries)
+            {
+                var normalizedJarPath = entry.JarRelativePath.Replace('\\', '/');
+                if (!jarPlanMap.TryGetValue(normalizedJarPath, out var jarPlan) &&
+                    !jarPlanMap.TryGetValue(Path.GetFileName(normalizedJarPath), out jarPlan))
+                {
+                    continue;
+                }
+
+                var scan = jarPlan.ScanResult;
+                if (scan.Strategy == ProcessingStrategy.NoLang ||
+                    scan.Integrity == JarIntegrity.Corrupted)
+                {
+                    continue;
+                }
+
+                var sourcePath = Path.GetFullPath(Path.Combine(outputRoot, entry.EditPath.Replace('/', Path.DirectorySeparatorChar)));
+                if (!File.Exists(sourcePath))
+                {
+                    continue;
+                }
+
+                if (IsConflictCopy(sourcePath))
+                {
+                    jarPlan.IgnoredConflictFiles.Add(sourcePath);
+                    continue;
+                }
+
+                if (!IsSupportedLangFile(sourcePath))
+                {
+                    continue;
+                }
+
+                if (!jarPlan.Files.Any(f => f.ArchivePath.Equals(entry.ArchivePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    jarPlan.Files.Add(new JarImportFile(sourcePath, entry.ArchivePath));
+                }
+            }
+
+            return batchPlan;
+        }
+
+        // フォールバック: mapping がない場合は従来のフォルダ探索
+        foreach (var scan in scanResults)
+        {
+            var jarPlan = jarPlanMap[scan.RelativeJarPath.Replace('\\', '/')];
             if (scan.Strategy == ProcessingStrategy.NoLang ||
                 scan.Integrity == JarIntegrity.Corrupted)
             {
@@ -62,7 +116,10 @@ public sealed class JarLangImporter
 
                         var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
                         var archivePath = LangPathResolver.BuildArchivePath(candidate, relativePath);
-                        jarPlan.Files.Add(new JarImportFile(sourcePath, archivePath));
+                        if (!jarPlan.Files.Any(f => f.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            jarPlan.Files.Add(new JarImportFile(sourcePath, archivePath));
+                        }
                     }
                 }
                 catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)

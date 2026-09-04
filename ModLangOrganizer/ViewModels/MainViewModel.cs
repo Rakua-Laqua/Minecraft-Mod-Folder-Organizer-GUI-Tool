@@ -17,10 +17,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly SnapshotValidator _snapshotValidator = new();
     private readonly Logger _logger = new();
     private readonly SettingsService _settingsService;
+    private readonly TranslationMappingStore _mappingStore = new();
+    private readonly TranslationMappingUpdater _mappingUpdater;
+    private WorkspaceMapping? _currentMapping;
 
     private string _targetDir = string.Empty;
     private string _outputRoot = string.Empty;
     private bool _outputRootSameAsTarget = true;
+    private string _resourcePackOutputRoot = string.Empty;
     private bool _backupZip;
     private CancelGranularity _cancelGranularity = CancelGranularity.PerJar;
     private bool _langFallbackEnabled;
@@ -69,10 +73,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public MainViewModel()
     {
+        _mappingUpdater = new TranslationMappingUpdater(_logger);
         _settingsService = new SettingsService(new SettingsStore(), message => _logger.Warn(message));
 
         BrowseFolderCommand = new RelayCommand(BrowseFolder);
         BrowseOutputCommand = new RelayCommand(BrowseOutput);
+        BrowseResourcePackOutputCommand = new RelayCommand(BrowseResourcePackOutput);
         ScanCommand = new AsyncRelayCommand(ScanAsync, CanScan);
         ExecuteCommand = new AsyncRelayCommand(ExecuteAsync, CanExecuteMainAction);
         ExportResourcePackCommand = new AsyncRelayCommand(ExportResourcePackAsync, CanExecuteMainAction);
@@ -135,6 +141,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 OutputRoot = JarPathPolicy.GetDefaultOutputRoot(TargetDir);
 
             SaveSettings();
+        }
+    }
+
+    public string ResourcePackOutputRoot
+    {
+        get => _resourcePackOutputRoot;
+        set
+        {
+            var normalized = value ?? string.Empty;
+            if (SetProperty(ref _resourcePackOutputRoot, normalized))
+                SaveSettings();
         }
     }
 
@@ -273,6 +290,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public ICommand BrowseFolderCommand { get; }
     public ICommand BrowseOutputCommand { get; }
+    public ICommand BrowseResourcePackOutputCommand { get; }
     public ICommand ScanCommand { get; }
     public ICommand ExecuteCommand { get; }
     public ICommand ExportResourcePackCommand { get; }
@@ -332,6 +350,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             OutputRoot = dialog.FolderName;
             OutputRootSameAsTarget = false;
+        }
+    }
+
+    private void BrowseResourcePackOutput()
+    {
+        var defaultDir = Directory.Exists(ResourcePackOutputRoot)
+            ? ResourcePackOutputRoot
+            : (Directory.Exists(TargetDir) ? TargetDir : string.Empty);
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "リソースパックの保存先フォルダを選択",
+            InitialDirectory = defaultDir
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            ResourcePackOutputRoot = dialog.FolderName;
         }
     }
 
@@ -410,6 +446,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             ScanCompleted = true;
 
+            try
+            {
+                _currentMapping = _mappingStore.Load(TargetDir);
+                var updatedMappingCount = _mappingUpdater.UpdateJarReferences(_currentMapping, _scanResults);
+                if (updatedMappingCount > 0)
+                {
+                    _mappingStore.Save(TargetDir, _currentMapping);
+                    _logger.Info($"MOD更新を検出し、{updatedMappingCount}件の言語マッピングを自動更新しました。");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"言語マッピング読込/更新エラー: {ex.Message}");
+            }
+
             var langCount = _scanResults.Count(r => r.Strategy == ProcessingStrategy.LangFound);
             var skipCount = _scanResults.Count(r => r.Strategy == ProcessingStrategy.NoLang);
             var errCount = _scanResults.Count(r => r.Integrity == JarIntegrity.Corrupted);
@@ -484,9 +535,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             var progress = new Progress<ExecutionProgress>(UpdateExecutionProgress);
 
+            _currentMapping ??= _mappingStore.Load(TargetDir);
+
             var result = await Task.Run(() =>
-                executor.ExecuteAsync(_scanResults, outputRoot, options, progress, _cts.Token),
+                executor.ExecuteAsync(_scanResults, outputRoot, options, progress, _cts.Token, _currentMapping),
                 _cts.Token);
+
+            try
+            {
+                _mappingStore.Save(TargetDir, _currentMapping);
+                _logger.Info($"言語マッピング保存完了: {_currentMapping.Entries.Count}件");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"言語マッピング保存失敗: {ex.Message}");
+            }
 
             StatusBarText = $"lang抽出完了: 成功 {result.SuccessCount}, 警告 {result.WarningCount}, スキップ {result.SkipCount}, 失敗 {result.FailCount}, Cleanup失敗 {result.CleanupFailCount}";
             ProgressText = "lang抽出完了";
@@ -533,8 +596,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
 
         var outputRoot = ResolveOutputRoot();
+        _currentMapping ??= _mappingStore.Load(TargetDir);
         var importer = new JarLangImporter(_logger);
-        var plan = importer.CreatePlan(_scanResults, outputRoot);
+        var plan = importer.CreatePlan(_scanResults, outputRoot, _currentMapping);
 
         if (plan.SourceFileCount == 0)
         {
@@ -548,33 +612,43 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // リソースパック出力先の推測
-        string defaultParentDir = TargetDir;
-        var parent = Path.GetDirectoryName(TargetDir);
-        if (!string.IsNullOrEmpty(parent) && Directory.Exists(Path.Combine(parent, "resourcepacks")))
+        string targetParentDir;
+        if (!string.IsNullOrWhiteSpace(ResourcePackOutputRoot) && Directory.Exists(ResourcePackOutputRoot))
         {
-            defaultParentDir = Path.Combine(parent, "resourcepacks");
-        }
-        else if (Directory.Exists(Path.Combine(TargetDir, "resourcepacks")))
-        {
-            defaultParentDir = Path.Combine(TargetDir, "resourcepacks");
-        }
-
-        var dialog = new OpenFolderDialog
-        {
-            Title = "リソースパックの配置先フォルダを選択（この中にModLangOrganizer Translationsを作成します）",
-            InitialDirectory = Directory.Exists(defaultParentDir) ? defaultParentDir : TargetDir
-        };
-
-        string targetRpFolder;
-        if (dialog.ShowDialog() == true)
-        {
-            targetRpFolder = Path.Combine(dialog.FolderName, "ModLangOrganizer Translations");
+            targetParentDir = ResourcePackOutputRoot;
         }
         else
         {
-            return;
+            // リソースパック出力先の推測
+            string defaultParentDir = TargetDir;
+            var parent = Path.GetDirectoryName(TargetDir);
+            if (!string.IsNullOrEmpty(parent) && Directory.Exists(Path.Combine(parent, "resourcepacks")))
+            {
+                defaultParentDir = Path.Combine(parent, "resourcepacks");
+            }
+            else if (Directory.Exists(Path.Combine(TargetDir, "resourcepacks")))
+            {
+                defaultParentDir = Path.Combine(TargetDir, "resourcepacks");
+            }
+
+            var dialog = new OpenFolderDialog
+            {
+                Title = "リソースパックの配置先フォルダを選択（この中にModLangOrganizer Translationsを作成します）",
+                InitialDirectory = Directory.Exists(defaultParentDir) ? defaultParentDir : TargetDir
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                targetParentDir = dialog.FolderName;
+                ResourcePackOutputRoot = targetParentDir;
+            }
+            else
+            {
+                return;
+            }
         }
+
+        var targetRpFolder = Path.Combine(targetParentDir, "ModLangOrganizer Translations");
 
         var selectedFormat = SelectedPackFormat;
 
@@ -659,8 +733,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
 
         var outputRoot = ResolveOutputRoot();
+        _currentMapping ??= _mappingStore.Load(TargetDir);
         var importer = new JarLangImporter(_logger);
-        var plan = importer.CreatePlan(_scanResults, outputRoot);
+        var plan = importer.CreatePlan(_scanResults, outputRoot, _currentMapping);
 
         if (plan.SourceFileCount == 0)
         {
@@ -876,6 +951,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var savedFmt = settings.ResourcePackFormat;
             SelectedPackFormat = AvailablePackFormats.FirstOrDefault(o => o.Format == savedFmt)
                 ?? AvailablePackFormats.First(o => o.Format == 15);
+            ResourcePackOutputRoot = settings.ResourcePackOutputRoot ?? string.Empty;
 
             if (invalidSavedTarget)
             {
@@ -915,6 +991,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             TargetDir = TargetDir,
             OutputRoot = OutputRoot,
             OutputRootSameAsTarget = OutputRootSameAsTarget,
+            ResourcePackOutputRoot = ResourcePackOutputRoot,
             BackupZip = BackupZip,
             CancelGranularity = CancelGranularity,
             LangFallbackEnabled = LangFallbackEnabled,
