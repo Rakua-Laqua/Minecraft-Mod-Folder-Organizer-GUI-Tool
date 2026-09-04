@@ -102,7 +102,7 @@ public static class JarPathPolicy
 
         var relative = Path.GetRelativePath(fullTarget, normalizedPath);
         var segments = relative.Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
             StringSplitOptions.RemoveEmptyEntries);
 
         return segments.Any(segment => ExcludedDirectoryNames.Contains(segment));
