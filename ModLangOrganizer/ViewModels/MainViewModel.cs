@@ -44,10 +44,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         new() { Format = 6,  DisplayName = "1.16.2 - 1.16.5 (format 6)" },
         new() { Format = 5,  DisplayName = "1.15 - 1.16.1 (format 5)" },
         new() { Format = 4,  DisplayName = "1.13 - 1.14.4 (format 4)" },
-        new() { Format = 3,  DisplayName = "1.6.1 - 1.12.2 (format 3)" },
+        new() { Format = 3,  DisplayName = "1.11 - 1.12.2 (format 3)" },
+        new() { Format = 2,  DisplayName = "1.9 - 1.10.2 (format 2)" },
+        new() { Format = 1,  DisplayName = "1.6.1 - 1.8.9 (format 1)" },
     };
 
-    private PackFormatOption _selectedPackFormat = AvailablePackFormats[6]; // format 15
+    private PackFormatOption _selectedPackFormat = AvailablePackFormats.First(o => o.Format == 15);
     private bool _isScanning;
     private bool _isExecuting;
     private bool _scanCompleted;

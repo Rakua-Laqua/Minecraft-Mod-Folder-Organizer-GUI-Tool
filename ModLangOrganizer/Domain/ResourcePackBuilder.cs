@@ -37,7 +37,7 @@ public sealed class ResourcePackBuilder
 
     /// <summary>
     /// フォルダ形式のリソースパックを出力する。
-    /// 一時フォルダに完全構築したのちアトミックに置換するため、前回出力された古いファイルが残留しません。
+    /// 一時フォルダに完全構築したのち安全に置換するため、前回出力された古いファイルが残留しません。
     /// </summary>
     public ResourcePackBuildResult BuildFolder(
         JarImportBatchPlan batchPlan,
@@ -107,7 +107,7 @@ public sealed class ResourcePackBuilder
 
             ct.ThrowIfCancellationRequested();
 
-            // 既存フォルダとの置換（アトミック更新）
+            // 既存フォルダとの置換（安全な置換）
             if (Directory.Exists(destinationDirectory))
             {
                 // 既存ディレクトリを一時バックアップへ移動
@@ -116,18 +116,33 @@ public sealed class ResourcePackBuilder
                 {
                     SafeMoveDirectoryWithRetry(tempDirectory, destinationDirectory);
                 }
-                catch
+                catch (Exception replaceEx)
                 {
                     // 移動失敗時はバックアップを元に戻す
                     if (!Directory.Exists(destinationDirectory) && Directory.Exists(backupDirectory))
                     {
-                        SafeMoveDirectoryWithRetry(backupDirectory, destinationDirectory);
+                        try
+                        {
+                            SafeMoveDirectoryWithRetry(backupDirectory, destinationDirectory);
+                        }
+                        catch (Exception rollbackEx)
+                        {
+                            // ロールバックにも失敗した場合は、旧データを保護するためバックアップを絶対に残す
+                            throw new IOException(
+                                $"リソースパックの置換に失敗し、バックアップからの復元にも失敗しました。" +
+                                $"旧データはバックアップフォルダに残されています: '{backupDirectory}' " +
+                                $"(置換エラー: {replaceEx.Message}, ロールバックエラー: {rollbackEx.Message})",
+                                replaceEx);
+                        }
                     }
                     throw;
                 }
 
-                // バックアップの削除
-                TryDeleteDirectory(backupDirectory);
+                // 新しい destinationDirectory が正常に確立されたことを確認して初めてバックアップを削除
+                if (Directory.Exists(destinationDirectory))
+                {
+                    TryDeleteDirectory(backupDirectory);
+                }
             }
             else
             {
@@ -144,9 +159,9 @@ public sealed class ResourcePackBuilder
         }
         finally
         {
-            // 一時フォルダ・バックアップのクリーンアップ
+            // 一時作業フォルダのクリーンアップ
+            // （backupDirectory は置換成功時のみ削除され、ロールバック失敗時はユーザーの旧データを保護するため削除しない）
             TryDeleteDirectory(tempDirectory);
-            TryDeleteDirectory(backupDirectory);
         }
     }
 

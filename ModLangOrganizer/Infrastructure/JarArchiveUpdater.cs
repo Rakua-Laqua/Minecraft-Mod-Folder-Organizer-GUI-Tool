@@ -266,9 +266,17 @@ public sealed class JarArchiveUpdater
                 {
                     currentName = line["Name:".Length..].Trim();
                 }
-                else if (line.Contains("-Digest:", StringComparison.OrdinalIgnoreCase))
+                else
                 {
-                    hasDigest = true;
+                    var colonIdx = line.IndexOf(':');
+                    if (colonIdx > 0)
+                    {
+                        var headerName = line[..colonIdx].Trim();
+                        if (headerName.EndsWith("-Digest", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasDigest = true;
+                        }
+                    }
                 }
             }
 
