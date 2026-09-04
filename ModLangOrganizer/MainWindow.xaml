@@ -5,10 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:ModLangOrganizer.ViewModels"
         xmlns:conv="clr-namespace:ModLangOrganizer.Converters"
+        xmlns:models="clr-namespace:ModLangOrganizer.Models"
         mc:Ignorable="d"
         Title="Mod Lang Organizer"
-        Height="780" Width="1100"
-        MinHeight="600" MinWidth="900"
+        Height="840" Width="1260"
+        MinHeight="680" MinWidth="1020"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgDeepBrush}">
 
@@ -41,7 +42,7 @@
         <!-- =============================================== -->
         <Border Grid.Row="0" Background="{StaticResource BgBaseBrush}"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
-                Padding="20,14">
+                Padding="20,12">
             <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- App Icon (Minecraft-style cube) -->
@@ -60,9 +61,10 @@
                                FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource TextPrimaryBrush}"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="v2.4.2" FontSize="11"
-                               Foreground="{StaticResource TextMutedBrush}"
-                               VerticalAlignment="Center" Margin="10,2,0,0"/>
+                    <Border Background="#206C63FF" CornerRadius="4" Padding="6,2" Margin="10,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="v3.0" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentLightBrush}"/>
+                    </Border>
                 </StackPanel>
 
                 <!-- jar count badge -->
@@ -84,47 +86,52 @@
         </Border>
 
         <!-- =============================================== -->
-        <!--  Main Content                                   -->
+        <!--  Main 2-Pane Content                            -->
         <!-- =============================================== -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      Padding="0">
-            <StackPanel Margin="24,20,24,20">
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <!-- Left Sidebar: Settings & Actions -->
+                <ColumnDefinition Width="340" MinWidth="300" MaxWidth="420"/>
+                <!-- Right Main Area: Workspace & Console -->
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-                <!-- ======================================= -->
-                <!--  Section 1: Folder Selection            -->
-                <!-- ======================================= -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                            <TextBlock Text="📂" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Text="フォルダ選択" Style="{StaticResource SectionHeader}" Margin="0"/>
-                        </StackPanel>
+            <!-- =========================================== -->
+            <!--  LEFT SIDEBAR: Settings & Actions           -->
+            <!-- =========================================== -->
+            <Border Grid.Column="0" Background="{StaticResource BgBaseBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="18,16,18,20">
 
-                        <!-- Target Folder -->
-                        <TextBlock Text="親フォルダ（jar格納先）" Style="{StaticResource FieldLabel}"/>
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
-                                     Text="{Binding TargetDir, UpdateSourceTrigger=PropertyChanged}"
-                                     IsReadOnly="True" Margin="0,0,8,0"/>
-                            <Button Grid.Column="1" Content="参照..." 
-                                    Style="{StaticResource SecondaryButton}"
-                                    Command="{Binding BrowseFolderCommand}"/>
-                        </Grid>
+                        <!-- Section: Paths -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14" Padding="16">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="📂" FontSize="15" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="フォルダ設定" Style="{StaticResource SectionHeader}" Margin="0"/>
+                                </StackPanel>
 
-                        <!-- Output Root -->
-                        <Grid Margin="0,0,0,4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
+                                <!-- Target Folder -->
+                                <TextBlock Text="親フォルダ（jar格納先）" Style="{StaticResource FieldLabel}"/>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
+                                             Text="{Binding TargetDir, UpdateSourceTrigger=PropertyChanged}"
+                                             IsReadOnly="True" Margin="0,0,6,0"/>
+                                    <Button Grid.Column="1" Content="参照..." 
+                                            Style="{StaticResource SecondaryButton}"
+                                            Padding="10,6"
+                                            Command="{Binding BrowseFolderCommand}"/>
+                                </Grid>
+
+                                <!-- Output Root -->
                                 <TextBlock Text="lang入出力ルート" Style="{StaticResource FieldLabel}"/>
-                                <Grid>
+                                <Grid Margin="0,0,0,6">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -132,28 +139,21 @@
                                     <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
                                              Text="{Binding OutputRoot, UpdateSourceTrigger=PropertyChanged}"
                                              IsEnabled="{Binding OutputRootSameAsTarget, Converter={StaticResource InverseBool}}"
-                                             Margin="0,0,8,0"/>
+                                             Margin="0,0,6,0"/>
                                     <Button Grid.Column="1" Content="変更..."
                                             Style="{StaticResource SecondaryButton}"
+                                            Padding="10,6"
                                             Command="{Binding BrowseOutputCommand}"
                                             IsEnabled="{Binding OutputRootSameAsTarget, Converter={StaticResource InverseBool}}"/>
                                 </Grid>
-                            </StackPanel>
-                        </Grid>
 
-                        <CheckBox Style="{StaticResource ModernCheckBox}"
-                                  Content="親フォルダと同じ場所をlang入出力ルートにする"
-                                  IsChecked="{Binding OutputRootSameAsTarget}"
-                                  Margin="0,8,0,0"/>
+                                <CheckBox Style="{StaticResource ModernCheckBox}"
+                                          Content="親フォルダと同じ場所にする"
+                                          IsChecked="{Binding OutputRootSameAsTarget}"
+                                          Margin="0,4,0,12"/>
 
-                        <!-- Resource Pack Output Root (Optional) -->
-                        <Grid Margin="0,10,0,4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="リソースパック出力先（任意 / 未指定時は自動判定）" Style="{StaticResource FieldLabel}"/>
+                                <!-- Resource Pack Output Root -->
+                                <TextBlock Text="リソースパック出力先（任意）" Style="{StaticResource FieldLabel}"/>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -161,311 +161,474 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
                                              Text="{Binding ResourcePackOutputRoot, UpdateSourceTrigger=PropertyChanged}"
-                                             Margin="0,0,8,0"/>
+                                             Margin="0,0,6,0"/>
                                     <Button Grid.Column="1" Content="参照..."
                                             Style="{StaticResource SecondaryButton}"
+                                            Padding="10,6"
                                             Command="{Binding BrowseResourcePackOutputCommand}"/>
                                 </Grid>
                             </StackPanel>
-                        </Grid>
+                        </Border>
 
-                        <TextBlock Margin="0,8,0,0"
-                                   FontSize="11.5"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   Text="抽出したファイルを編集後、再スキャンして［JARへ反映］を実行します。mapping.jsonに基づき各JARへ正確に反映されます。"/>
-                    </StackPanel>
-                </Border>
+                        <!-- Section: Options -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14" Padding="16">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="⚙" FontSize="15" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="オプション" Style="{StaticResource SectionHeader}" Margin="0"/>
+                                </StackPanel>
 
-                <!-- ======================================= -->
-                <!--  Section 2: Options                     -->
-                <!-- ======================================= -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                            <TextBlock Text="⚙" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Text="オプション" Style="{StaticResource SectionHeader}" Margin="0"/>
-                        </StackPanel>
-
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-
-                            <!-- Backup -->
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="バックアップ" Style="{StaticResource FieldLabel}"/>
+                                <!-- Backup -->
                                 <CheckBox Style="{StaticResource ModernCheckBox}"
                                           Content="実行前に親フォルダをZipバックアップ"
-                                          IsChecked="{Binding BackupZip}"/>
-                            </StackPanel>
+                                          IsChecked="{Binding BackupZip}"
+                                          Margin="0,0,0,12"/>
 
-                            <!-- Cancel Granularity -->
-                            <StackPanel Grid.Column="1">
+                                <!-- Cancel Granularity -->
                                 <TextBlock Text="キャンセル粒度" Style="{StaticResource FieldLabel}"/>
-                                <StackPanel Orientation="Horizontal">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                     <RadioButton Style="{StaticResource ModernRadioButton}"
-                                                 Content="jar単位（推奨）"
+                                                 Content="jar単位"
                                                  GroupName="CancelGranularity"
                                                  IsChecked="{Binding CancelGranularity, Converter={StaticResource EnumToBool}, ConverterParameter=PerJar}"
-                                                 Margin="0,0,20,0"/>
+                                                 Margin="0,0,16,0"/>
                                     <RadioButton Style="{StaticResource ModernRadioButton}"
                                                  Content="ファイル単位"
                                                  GroupName="CancelGranularity"
                                                  IsChecked="{Binding CancelGranularity, Converter={StaticResource EnumToBool}, ConverterParameter=PerFile}"/>
                                 </StackPanel>
-                            </StackPanel>
 
-                            <!-- Resource Pack Format -->
-                            <StackPanel Grid.Column="2" Margin="10,0,0,0">
+                                <!-- Resource Pack Format -->
                                 <TextBlock Text="リソースパック形式" Style="{StaticResource FieldLabel}"/>
                                 <ComboBox ItemsSource="{Binding PackFormatOptions}"
                                           SelectedItem="{Binding SelectedPackFormat}"
                                           DisplayMemberPath="DisplayName"
-                                          Height="28" VerticalContentAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
+                                          Height="30" VerticalContentAlignment="Center"
+                                          Margin="0,0,0,12"/>
 
-                        <!-- Lang Fallback -->
-                        <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}" Margin="0,14,0,0" Padding="0,14,0,0">
-                            <StackPanel>
-                                <CheckBox Style="{StaticResource ModernCheckBox}"
-                                          Content="langフォールバック（抽出時、ターゲットが無い場合にソースからコピー生成）"
-                                          IsChecked="{Binding LangFallbackEnabled}"
-                                          Margin="0,0,0,10"/>
-                                <Grid IsEnabled="{Binding LangFallbackEnabled}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Text="コピー元ファイル名（拡張子なし）" Style="{StaticResource FieldLabel}"/>
-                                        <TextBox Style="{StaticResource ModernTextBox}"
-                                                 Text="{Binding LangFallbackSourceName, UpdateSourceTrigger=PropertyChanged}"/>
+                                <!-- Lang Fallback -->
+                                <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource BorderBrush}"
+                                        Padding="0,10,0,0">
+                                    <StackPanel>
+                                        <CheckBox Style="{StaticResource ModernCheckBox}"
+                                                  Content="langフォールバック有効化"
+                                                  IsChecked="{Binding LangFallbackEnabled}"
+                                                  Margin="0,0,0,8"/>
+                                        <Grid IsEnabled="{Binding LangFallbackEnabled}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
+                                                     Text="{Binding LangFallbackSourceName, UpdateSourceTrigger=PropertyChanged}"/>
+                                            <TextBlock Grid.Column="1" Text="→" FontSize="16"
+                                                       Foreground="{StaticResource TextMutedBrush}"
+                                                       VerticalAlignment="Center" Margin="8,0,8,0"/>
+                                            <TextBox Grid.Column="2" Style="{StaticResource ModernTextBox}"
+                                                     Text="{Binding LangFallbackTargetName, UpdateSourceTrigger=PropertyChanged}"/>
+                                        </Grid>
                                     </StackPanel>
-                                    <TextBlock Grid.Column="1" Text="→" FontSize="18"
-                                               Foreground="{StaticResource TextMutedBrush}"
-                                               VerticalAlignment="Bottom" Margin="14,0,14,6"/>
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Text="コピー先ファイル名（拡張子なし）" Style="{StaticResource FieldLabel}"/>
-                                        <TextBox Style="{StaticResource ModernTextBox}"
-                                                 Text="{Binding LangFallbackTargetName, UpdateSourceTrigger=PropertyChanged}"/>
-                                    </StackPanel>
-                                </Grid>
+                                </Border>
                             </StackPanel>
                         </Border>
+
+                        <!-- Section: Action Buttons -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14" Padding="16">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="🚀" FontSize="15" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="アクション実行" Style="{StaticResource SectionHeader}" Margin="0"/>
+                                </StackPanel>
+
+                                <Button Content="🔍  フォルダをスキャン"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding ScanCommand}"
+                                        Height="38" Margin="0,0,0,10"/>
+
+                                <Button Content="📤  langを抽出"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding ExecuteCommand}"
+                                        Height="38" Margin="0,0,0,10">
+                                    <Button.Background>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                            <GradientStop Color="{StaticResource ColorSuccess}" Offset="0"/>
+                                            <GradientStop Color="#FF0E9F72" Offset="1"/>
+                                        </LinearGradientBrush>
+                                    </Button.Background>
+                                </Button>
+
+                                <Button Content="📥  JARへ反映"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding ImportCommand}"
+                                        Height="38" Margin="0,0,0,10">
+                                    <Button.Background>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                            <GradientStop Color="{StaticResource ColorWarning}" Offset="0"/>
+                                            <GradientStop Color="#FFD97706" Offset="1"/>
+                                        </LinearGradientBrush>
+                                    </Button.Background>
+                                </Button>
+
+                                <Button Content="📦  リソースパック出力"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding ExportResourcePackCommand}"
+                                        Height="38" Margin="0,0,0,10">
+                                    <Button.Background>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                            <GradientStop Color="#FF3B82F6" Offset="0"/>
+                                            <GradientStop Color="#FF1D4ED8" Offset="1"/>
+                                        </LinearGradientBrush>
+                                    </Button.Background>
+                                </Button>
+
+                                <Button Content="⏹  キャンセル"
+                                        Style="{StaticResource DangerButton}"
+                                        Command="{Binding CancelCommand}"
+                                        Height="34"/>
+
+                                <!-- Rescan warning banner -->
+                                <Border Margin="0,12,0,0"
+                                        CornerRadius="{StaticResource RadiusMd}"
+                                        Background="#30F59E0B" Padding="12,8"
+                                        Visibility="{Binding SnapshotFresh, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}">
+                                    <TextBlock Text="⚠ jarが変更されています。再スキャンしてください"
+                                               FontSize="11.5" Foreground="{StaticResource WarningBrush}"
+                                               TextWrapping="Wrap"/>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Progress Panel (Visible when active) -->
+                        <Border Style="{StaticResource Card}" Padding="14,10"
+                                Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,6">
+                                    <TextBlock Text="{Binding ProgressText}" FontSize="11"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="11"
+                                               Foreground="{StaticResource AccentLightBrush}">
+                                        <Run Text="{Binding ProgressPercent, StringFormat={}{0:F0}}"/>
+                                        <Run Text="%"/>
+                                    </TextBlock>
+                                </Grid>
+                                <ProgressBar Style="{StaticResource ModernProgressBar}"
+                                             Value="{Binding ProgressPercent}" Maximum="100"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}" Padding="14,10" Margin="0,10,0,0"
+                                Visibility="{Binding IsExecuting, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,6">
+                                    <TextBlock Text="{Binding ProgressText}" FontSize="11"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="11"
+                                               Foreground="{StaticResource AccentLightBrush}">
+                                        <Run Text="{Binding ProgressPercent, StringFormat={}{0:F0}}"/>
+                                        <Run Text="%"/>
+                                    </TextBlock>
+                                </Grid>
+                                <ProgressBar Style="{StaticResource ModernProgressBar}"
+                                             Value="{Binding ProgressPercent}" Maximum="100"/>
+                            </StackPanel>
+                        </Border>
+
                     </StackPanel>
-                </Border>
+                </ScrollViewer>
+            </Border>
+
+            <!-- =========================================== -->
+            <!--  RIGHT MAIN AREA: Workspace & Console       -->
+            <!-- =========================================== -->
+            <Grid Grid.Column="1" Margin="20,16,20,16">
+                <Grid.RowDefinitions>
+                    <!-- Row 0: KPI Metrics Cards -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Row 1: Search & Filter Toolbar -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Row 2: Mod DataGrid -->
+                    <RowDefinition Height="*"/>
+                    <!-- Row 3: Splitter -->
+                    <RowDefinition Height="6"/>
+                    <!-- Row 4: Log Terminal Panel -->
+                    <RowDefinition Height="190" MinHeight="100"/>
+                </Grid.RowDefinitions>
 
                 <!-- ======================================= -->
-                <!--  Section 3: Action Buttons              -->
+                <!--  Row 0: KPI Metrics Cards               -->
                 <!-- ======================================= -->
-                <Grid Margin="0,0,0,16">
+                <Grid Grid.Row="0" Margin="0,0,0,14">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <Button Grid.Column="0" Content="🔍  スキャン"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding ScanCommand}"
-                            Margin="0,0,10,0"/>
+                    <!-- Card 1: Total Mods -->
+                    <Border Grid.Column="0" Style="{StaticResource MetricCard}" Margin="0,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="総Mod数" FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}"/>
+                            <TextBlock Text="{Binding TotalModsCount}" FontSize="24" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,4,0,2"/>
+                            <TextBlock Text="検出JARファイル" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}"/>
+                        </StackPanel>
+                    </Border>
 
-                    <Button Grid.Column="1" Content="📤  langを抽出"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding ExecuteCommand}"
-                            Margin="0,0,10,0">
-                        <Button.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="{StaticResource ColorSuccess}" Offset="0"/>
-                                <GradientStop Color="#FF0E9F72" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Button.Background>
-                    </Button>
+                    <!-- Card 2: Extractable -->
+                    <Border Grid.Column="1" Style="{StaticResource MetricCard}" Margin="4,0,4,0"
+                            BorderBrush="#4010B981">
+                        <StackPanel>
+                            <TextBlock Text="抽出可能" FontSize="11.5" Foreground="{StaticResource SuccessBrush}"/>
+                            <TextBlock Text="{Binding ExtractableModsCount}" FontSize="24" FontWeight="Bold"
+                                       Foreground="{StaticResource SuccessBrush}" Margin="0,4,0,2"/>
+                            <TextBlock Text="langファイル検出済" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}"/>
+                        </StackPanel>
+                    </Border>
 
-                    <Button Grid.Column="2" Content="📥  JARへ反映"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding ImportCommand}"
-                            Margin="0,0,10,0">
-                        <Button.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="{StaticResource ColorWarning}" Offset="0"/>
-                                <GradientStop Color="#FFD97706" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Button.Background>
-                    </Button>
+                    <!-- Card 3: Fallback Pending -->
+                    <Border Grid.Column="2" Style="{StaticResource MetricCard}" Margin="4,0,4,0"
+                            BorderBrush="#403B82F6">
+                        <StackPanel>
+                            <TextBlock Text="フォールバック対象" FontSize="11.5" Foreground="{StaticResource InfoBrush}"/>
+                            <TextBlock Text="{Binding FallbackModsCount}" FontSize="24" FontWeight="Bold"
+                                       Foreground="{StaticResource InfoBrush}" Margin="0,4,0,2"/>
+                            <TextBlock Text="新規コピー生成" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}"/>
+                        </StackPanel>
+                    </Border>
 
-                    <Button Grid.Column="3" Content="📦  リソースパック出力"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding ExportResourcePackCommand}"
-                            Margin="0,0,10,0">
-                        <Button.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="#FF3B82F6" Offset="0"/>
-                                <GradientStop Color="#FF1D4ED8" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Button.Background>
-                    </Button>
-
-                    <Button Grid.Column="4" Content="⏹  キャンセル"
-                            Style="{StaticResource DangerButton}"
-                            Command="{Binding CancelCommand}"/>
-
-                    <!-- Rescan warning -->
-                    <Border Grid.Column="5" Margin="16,0,0,0"
-                            CornerRadius="{StaticResource RadiusMd}"
-                            Background="#30F59E0B" Padding="14,8"
-                            VerticalAlignment="Center"
-                            Visibility="{Binding SnapshotFresh, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}">
-                        <TextBlock Text="⚠ jarが変更されています。再スキャンしてください"
-                                   FontSize="12" Foreground="{StaticResource WarningBrush}"
-                                   VerticalAlignment="Center"/>
+                    <!-- Card 4: Issues -->
+                    <Border Grid.Column="3" Style="{StaticResource MetricCard}" Margin="8,0,0,0"
+                            BorderBrush="#40EF4444">
+                        <StackPanel>
+                            <TextBlock Text="異常・破損" FontSize="11.5" Foreground="{StaticResource ErrorBrush}"/>
+                            <TextBlock Text="{Binding IssueModsCount}" FontSize="24" FontWeight="Bold"
+                                       Foreground="{StaticResource ErrorBrush}" Margin="0,4,0,2"/>
+                            <TextBlock Text="要確認JARファイル" FontSize="10.5" Foreground="{StaticResource TextMutedBrush}"/>
+                        </StackPanel>
                     </Border>
                 </Grid>
 
                 <!-- ======================================= -->
-                <!--  Section 4: Progress                    -->
+                <!--  Row 1: Search & Filter Toolbar         -->
                 <!-- ======================================= -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16"
-                        Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}"
-                        Padding="20,16">
-                    <!-- Show during scan or execute -->
-                    <StackPanel>
-                        <Grid Margin="0,0,0,8">
-                            <TextBlock Text="{Binding ProgressText}"
-                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
-                            <TextBlock HorizontalAlignment="Right"
-                                       FontSize="12" Foreground="{StaticResource AccentLightBrush}">
-                                <Run Text="{Binding ProgressPercent, StringFormat={}{0:F0}}"/>
-                                <Run Text="%"/>
-                            </TextBlock>
-                        </Grid>
-                        <ProgressBar Style="{StaticResource ModernProgressBar}"
-                                     Value="{Binding ProgressPercent}" Maximum="100"/>
+                <Grid Grid.Row="1" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <!-- Search Box -->
+                        <ColumnDefinition Width="260"/>
+                        <!-- Filter Tabs -->
+                        <ColumnDefinition Width="*"/>
+                        <!-- Batch Selection Buttons -->
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Search Box -->
+                    <Grid Grid.Column="0" Margin="0,0,16,0">
+                        <TextBox Style="{StaticResource ModernTextBox}"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Padding="30,7,10,7"/>
+                        <TextBlock Text="🔍" FontSize="13" Foreground="{StaticResource TextMutedBrush}"
+                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                   IsHitTestVisible="False"/>
+                        <TextBlock Text="Mod名・言語で検索..." FontSize="12" Foreground="{StaticResource TextMutedBrush}"
+                                   VerticalAlignment="Center" Margin="32,0,0,0"
+                                   IsHitTestVisible="False">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SearchText}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SearchText}" Value="{x:Null}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+
+                    <!-- Filter Tabs (Segmented controls) -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <RadioButton Style="{StaticResource FilterTabButton}"
+                                     GroupName="ModFilterGroup"
+                                     IsChecked="{Binding SelectedFilterTab, Converter={StaticResource EnumToBool}, ConverterParameter=All}"
+                                     Margin="0,0,6,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="すべて ("/>
+                                <TextBlock Text="{Binding TotalModsCount}"/>
+                                <TextBlock Text=")"/>
+                            </StackPanel>
+                        </RadioButton>
+
+                        <RadioButton Style="{StaticResource FilterTabButton}"
+                                     GroupName="ModFilterGroup"
+                                     IsChecked="{Binding SelectedFilterTab, Converter={StaticResource EnumToBool}, ConverterParameter=Extractable}"
+                                     Margin="0,0,6,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="抽出可能 ("/>
+                                <TextBlock Text="{Binding ExtractableModsCount}"/>
+                                <TextBlock Text=")"/>
+                            </StackPanel>
+                        </RadioButton>
+
+                        <RadioButton Style="{StaticResource FilterTabButton}"
+                                     GroupName="ModFilterGroup"
+                                     IsChecked="{Binding SelectedFilterTab, Converter={StaticResource EnumToBool}, ConverterParameter=Fallback}"
+                                     Margin="0,0,6,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="要フォールバック ("/>
+                                <TextBlock Text="{Binding FallbackModsCount}"/>
+                                <TextBlock Text=")"/>
+                            </StackPanel>
+                        </RadioButton>
+
+                        <RadioButton Style="{StaticResource FilterTabButton}"
+                                     GroupName="ModFilterGroup"
+                                     IsChecked="{Binding SelectedFilterTab, Converter={StaticResource EnumToBool}, ConverterParameter=Errors}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="異常 ("/>
+                                <TextBlock Text="{Binding IssueModsCount}"/>
+                                <TextBlock Text=")"/>
+                            </StackPanel>
+                        </RadioButton>
                     </StackPanel>
-                </Border>
 
-                <!-- Progress during execution -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16"
-                        Padding="20,16">
-                    <Border.Visibility>
-                        <Binding Path="IsExecuting" Converter="{StaticResource BoolToVis}"/>
-                    </Border.Visibility>
-                    <StackPanel>
-                        <Grid Margin="0,0,0,8">
-                            <TextBlock Text="{Binding ProgressText}"
-                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
-                            <TextBlock HorizontalAlignment="Right"
-                                       FontSize="12" Foreground="{StaticResource AccentLightBrush}">
-                                <Run Text="{Binding ProgressPercent, StringFormat={}{0:F0}}"/>
-                                <Run Text="%"/>
-                            </TextBlock>
-                        </Grid>
-                        <ProgressBar Style="{StaticResource ModernProgressBar}"
-                                     Value="{Binding ProgressPercent}" Maximum="100"/>
+                    <!-- Batch Selection Controls -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="全選択" Style="{StaticResource SecondaryButton}"
+                                Command="{Binding SelectAllCommand}"
+                                Padding="10,6" FontSize="11.5" Margin="0,0,6,0"/>
+                        <Button Content="全解除" Style="{StaticResource SecondaryButton}"
+                                Command="{Binding UnselectAllCommand}"
+                                Padding="10,6" FontSize="11.5"/>
                     </StackPanel>
-                </Border>
+                </Grid>
 
                 <!-- ======================================= -->
-                <!--  Section 5: Scan Results Table          -->
+                <!--  Row 2: Mod DataGrid                    -->
                 <!-- ======================================= -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,16" Padding="0"
-                        Visibility="{Binding ScanCompleted, Converter={StaticResource BoolToVis}}">
-                    <DockPanel>
-                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="20,16,20,12">
-                            <TextBlock Text="📋" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Text="スキャン結果" Style="{StaticResource SectionHeader}" Margin="0"/>
-                            <Border Background="{StaticResource BgElevatedBrush}" CornerRadius="10"
-                                    Padding="10,2" Margin="12,0,0,0" VerticalAlignment="Center">
-                                <TextBlock FontSize="11" Foreground="{StaticResource TextMutedBrush}">
-                                    <Run Text="{Binding Mods.Count, Mode=OneWay}"/>
-                                    <Run Text="件"/>
-                                </TextBlock>
-                            </Border>
-                        </StackPanel>
+                <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
+                    <DataGrid Style="{StaticResource ModernDataGrid}"
+                              ColumnHeaderStyle="{StaticResource ModernColumnHeader}"
+                              CellStyle="{StaticResource ModernDataGridCell}"
+                              RowStyle="{StaticResource ModernDataGridRow}"
+                              ItemsSource="{Binding FilteredModsView}"
+                              Margin="1">
+                        <DataGrid.Columns>
+                            <!-- Checkbox Column -->
+                            <DataGridTemplateColumn Width="40">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox Style="{StaticResource ModernCheckBox}"
+                                                  IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
 
-                        <DataGrid DockPanel.Dock="Bottom"
-                                  Style="{StaticResource ModernDataGrid}"
-                                  ColumnHeaderStyle="{StaticResource ModernColumnHeader}"
-                                  CellStyle="{StaticResource ModernDataGridCell}"
-                                  RowStyle="{StaticResource ModernDataGridRow}"
-                                  ItemsSource="{Binding Mods}"
-                                  MaxHeight="300"
-                                  Margin="1,0,1,1">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Mod名" Binding="{Binding JarFileName}" Width="2*"/>
-                                <DataGridTemplateColumn Header="健全性" Width="70">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
+                            <!-- Mod JAR Name -->
+                            <DataGridTextColumn Header="Mod名 (JAR)" Binding="{Binding JarFileName}" Width="2*"/>
+
+                            <!-- Health / Integrity Badge -->
+                            <DataGridTemplateColumn Header="健全性" Width="80">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="8" Padding="8,2" HorizontalAlignment="Left">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#2010B981"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Integrity}" Value="{x:Static models:JarIntegrity.Corrupted}">
+                                                            <Setter Property="Background" Value="#25EF4444"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
                                             <TextBlock Text="{Binding IntegrityDisplay}"
                                                        Foreground="{Binding Integrity, Converter={StaticResource IntegrityToColor}}"
-                                                       FontWeight="SemiBold"/>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="lang" Binding="{Binding LangCountDisplay}" Width="60"/>
-                                <DataGridTextColumn Header="方針" Binding="{Binding StrategyDisplay}" Width="90"/>
-                                <DataGridTextColumn Header="抽出予定" Binding="{Binding OperationSummary}" Width="*"/>
-                                <DataGridTemplateColumn Header="スナップショット" Width="110">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding SnapshotStateDisplay}"
-                                                       Foreground="{Binding SnapshotState, Converter={StaticResource SnapshotToColor}}"
-                                                       FontWeight="Medium"/>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Header="ステータス" Width="90">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <Border CornerRadius="10" Padding="8,2"
-                                                    HorizontalAlignment="Left">
-                                                <Border.Background>
-                                                    <SolidColorBrush Color="{StaticResource BgElevated}"/>
-                                                </Border.Background>
-                                                <TextBlock Text="{Binding StatusDisplay}"
-                                                           Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"
-                                                           FontSize="11.5" FontWeight="SemiBold"/>
-                                            </Border>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </DockPanel>
+                                                       FontWeight="Bold" FontSize="11"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <!-- Language Chips / Codes -->
+                            <DataGridTextColumn Header="検出言語" Binding="{Binding LangCodesDisplay}" Width="130"/>
+
+                            <!-- Strategy -->
+                            <DataGridTextColumn Header="方針" Binding="{Binding StrategyDisplay}" Width="85"/>
+
+                            <!-- Human-Readable Planned Operation -->
+                            <DataGridTextColumn Header="処理予定" Binding="{Binding ReadableOperationSummary}" Width="1.5*"/>
+
+                            <!-- Snapshot State -->
+                            <DataGridTemplateColumn Header="スナップショット" Width="105">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding SnapshotStateDisplay}"
+                                                   Foreground="{Binding SnapshotState, Converter={StaticResource SnapshotToColor}}"
+                                                   FontWeight="Medium"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <!-- Status Badge -->
+                            <DataGridTemplateColumn Header="ステータス" Width="95">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="10" Padding="8,2" HorizontalAlignment="Left"
+                                                Background="{StaticResource BgElevatedBrush}">
+                                            <TextBlock Text="{Binding StatusDisplay}"
+                                                       Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"
+                                                       FontSize="11" FontWeight="SemiBold"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </Border>
 
                 <!-- ======================================= -->
-                <!--  Section 6: Log View                    -->
+                <!--  Row 3: GridSplitter                    -->
                 <!-- ======================================= -->
-                <Border Style="{StaticResource Card}" Padding="0">
+                <GridSplitter Grid.Row="3" Height="6"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Center"
+                              Background="Transparent"
+                              Cursor="SizeNS"/>
+
+                <!-- ======================================= -->
+                <!--  Row 4: Log Terminal Panel              -->
+                <!-- ======================================= -->
+                <Border Grid.Row="4" Style="{StaticResource Card}" Padding="0">
                     <DockPanel>
-                        <Grid DockPanel.Dock="Top" Margin="20,16,20,12">
+                        <!-- Header Bar -->
+                        <Grid DockPanel.Dock="Top" Margin="14,10,14,8">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="📝" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Text="ログ" Style="{StaticResource SectionHeader}" Margin="0"/>
+                                <TextBlock Text="📝" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBlock Text="ターミナル / 実行ログ" Style="{StaticResource SectionHeader}" Margin="0" FontSize="13"/>
                                 <Border Background="{StaticResource BgElevatedBrush}" CornerRadius="10"
-                                        Padding="10,2" Margin="12,0,0,0" VerticalAlignment="Center">
-                                    <TextBlock FontSize="11" Foreground="{StaticResource TextMutedBrush}">
+                                        Padding="8,2" Margin="10,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock FontSize="10.5" Foreground="{StaticResource TextMutedBrush}">
                                         <Run Text="{Binding LogEntries.Count, Mode=OneWay}"/>
                                         <Run Text="件"/>
                                     </TextBlock>
                                 </Border>
                             </StackPanel>
+
                             <Button Content="💾 ログ保存" 
                                     Style="{StaticResource SecondaryButton}"
                                     Command="{Binding SaveLogCommand}"
                                     HorizontalAlignment="Right"
-                                    Padding="12,6"
-                                    FontSize="12"/>
+                                    Padding="10,4"
+                                    FontSize="11.5"/>
                         </Grid>
 
+                        <!-- Console Output List -->
                         <Border DockPanel.Dock="Bottom"
                                 Background="{StaticResource BgDeepBrush}"
                                 CornerRadius="0,0,12,12"
@@ -473,13 +636,12 @@
                             <ListBox ItemsSource="{Binding LogEntries}"
                                      Background="Transparent"
                                      BorderThickness="0"
-                                     MaxHeight="200"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                      VirtualizingPanel.IsVirtualizing="True"
                                      VirtualizingPanel.ScrollUnit="Pixel">
                                 <ListBox.ItemContainerStyle>
                                     <Style TargetType="ListBoxItem">
-                                        <Setter Property="Padding" Value="12,3"/>
+                                        <Setter Property="Padding" Value="10,2"/>
                                         <Setter Property="Background" Value="Transparent"/>
                                         <Setter Property="BorderThickness" Value="0"/>
                                         <Setter Property="Focusable" Value="False"/>
@@ -514,8 +676,8 @@
                     </DockPanel>
                 </Border>
 
-            </StackPanel>
-        </ScrollViewer>
+            </Grid>
+        </Grid>
 
         <!-- =============================================== -->
         <!--  Status Bar                                     -->

@@ -67,3 +67,12 @@ public enum CancelGranularity
     /// <summary>ファイル単位</summary>
     PerFile
 }
+
+/// <summary>Mod一覧の絞り込みタブ</summary>
+public enum ModFilterTab
+{
+    All,
+    Extractable,
+    Fallback,
+    Errors
+}

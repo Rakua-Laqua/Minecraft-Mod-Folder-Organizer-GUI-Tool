@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using Microsoft.Win32;
 using ModLangOrganizer.Domain;
@@ -67,6 +69,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isApplyingSettings;
     private bool _disposed;
     private string _activeActionLabel = "実行";
+    private int _totalModsCount;
+    private int _extractableModsCount;
+    private int _fallbackModsCount;
+    private int _issueModsCount;
+    private string _searchText = string.Empty;
+    private ModFilterTab _selectedFilterTab = ModFilterTab.All;
 
     // スキャン結果保持
     private List<JarScanResult> _scanResults = [];
@@ -75,6 +83,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         _mappingUpdater = new TranslationMappingUpdater(_logger);
         _settingsService = new SettingsService(new SettingsStore(), message => _logger.Warn(message));
+
+        FilteredModsView = CollectionViewSource.GetDefaultView(Mods);
+        FilteredModsView.Filter = FilterModItem;
 
         BrowseFolderCommand = new RelayCommand(BrowseFolder);
         BrowseOutputCommand = new RelayCommand(BrowseOutput);
@@ -85,6 +96,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ImportCommand = new AsyncRelayCommand(ImportAsync, CanExecuteMainAction);
         CancelCommand = new RelayCommand(Cancel, CanCancel);
         SaveLogCommand = new AsyncRelayCommand(SaveLogAsync);
+        SelectAllCommand = new RelayCommand(SelectAll);
+        UnselectAllCommand = new RelayCommand(UnselectAll);
 
         _logger.LogAdded += _ =>
         {
@@ -283,6 +296,56 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _jarCount, value);
     }
 
+    public int TotalModsCount
+    {
+        get => _totalModsCount;
+        private set => SetProperty(ref _totalModsCount, value);
+    }
+
+    public int ExtractableModsCount
+    {
+        get => _extractableModsCount;
+        private set => SetProperty(ref _extractableModsCount, value);
+    }
+
+    public int FallbackModsCount
+    {
+        get => _fallbackModsCount;
+        private set => SetProperty(ref _fallbackModsCount, value);
+    }
+
+    public int IssueModsCount
+    {
+        get => _issueModsCount;
+        private set => SetProperty(ref _issueModsCount, value);
+    }
+
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (SetProperty(ref _searchText, value ?? string.Empty))
+            {
+                FilteredModsView.Refresh();
+            }
+        }
+    }
+
+    public ModFilterTab SelectedFilterTab
+    {
+        get => _selectedFilterTab;
+        set
+        {
+            if (SetProperty(ref _selectedFilterTab, value))
+            {
+                FilteredModsView.Refresh();
+            }
+        }
+    }
+
+    public ICollectionView FilteredModsView { get; }
+
     public ObservableCollection<ModItemViewModel> Mods { get; } = [];
     public ObservableCollection<LogEntry> LogEntries => _logger.Entries;
 
@@ -297,8 +360,50 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ImportCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand SaveLogCommand { get; }
+    public ICommand SelectAllCommand { get; }
+    public ICommand UnselectAllCommand { get; }
 
     // ---- Methods ----
+
+    private void SelectAll()
+    {
+        foreach (var item in FilteredModsView.OfType<ModItemViewModel>())
+            item.IsSelected = true;
+    }
+
+    private void UnselectAll()
+    {
+        foreach (var item in FilteredModsView.OfType<ModItemViewModel>())
+            item.IsSelected = false;
+    }
+
+    private bool FilterModItem(object obj)
+    {
+        if (obj is not ModItemViewModel item) return false;
+
+        bool matchesTab = SelectedFilterTab switch
+        {
+            ModFilterTab.Extractable => item.Strategy == ProcessingStrategy.LangFound || item.ExtractCount > 0,
+            ModFilterTab.Fallback => item.CopyCount > 0,
+            ModFilterTab.Errors => item.Integrity == JarIntegrity.Corrupted || item.Status == ModStatus.Failed,
+            _ => true
+        };
+        if (!matchesTab) return false;
+
+        if (string.IsNullOrWhiteSpace(SearchText)) return true;
+        var query = SearchText.Trim();
+        return item.JarFileName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               item.LangCodes.Any(l => l.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+               item.ReadableOperationSummary.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void UpdateMetrics()
+    {
+        TotalModsCount = Mods.Count;
+        ExtractableModsCount = Mods.Count(m => m.Strategy == ProcessingStrategy.LangFound || m.ExtractCount > 0);
+        FallbackModsCount = Mods.Count(m => m.CopyCount > 0);
+        IssueModsCount = Mods.Count(m => m.Integrity == JarIntegrity.Corrupted || m.Status == ModStatus.Failed);
+    }
 
     public void Dispose()
     {
@@ -402,6 +507,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SnapshotFresh = true;
         _scanResults.Clear();
         Mods.Clear();
+        UpdateMetrics();
         _logger.Clear();
         ProgressPercent = 0;
         StatusBarText = "スキャン中...";
@@ -445,6 +551,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }, _cts.Token);
 
             ScanCompleted = true;
+            UpdateMetrics();
 
             try
             {
