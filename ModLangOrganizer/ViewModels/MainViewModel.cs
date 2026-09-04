@@ -74,7 +74,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (!SetProperty(ref _targetDir, normalized)) return;
 
             if (_outputRootSameAsTarget)
-                OutputRoot = normalized;
+                OutputRoot = JarPathPolicy.GetDefaultOutputRoot(normalized);
 
             ScanCompleted = false;
             JarCount = 0;
@@ -107,7 +107,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (!SetProperty(ref _outputRootSameAsTarget, value)) return;
 
             if (value)
-                OutputRoot = TargetDir;
+                OutputRoot = JarPathPolicy.GetDefaultOutputRoot(TargetDir);
 
             SaveSettings();
         }
@@ -274,7 +274,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         var dialog = new OpenFolderDialog
         {
-            Title = "Mod jarファイルがあるフォルダを選択"
+            Title = "Mod jarファイルを含む親フォルダを選択"
         };
 
         if (dialog.ShowDialog() == true)
@@ -308,6 +308,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return false;
     }
 
+    private string ResolveOutputRoot()
+    {
+        if (!string.IsNullOrWhiteSpace(OutputRoot))
+            return OutputRoot;
+
+        return JarPathPolicy.GetDefaultOutputRoot(TargetDir);
+    }
+
     private async Task ScanAsync()
     {
         if (!EnsureTargetDirValid(showMessage: true))
@@ -326,11 +334,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            var jars = _scanner.EnumerateJars(TargetDir);
+            var outputRoot = ResolveOutputRoot();
+            var jars = _scanner.EnumerateJars(TargetDir, outputRoot);
             JarCount = jars.Count;
-            _logger.Info($"jarファイル {jars.Count} 件を検出: {TargetDir}");
-
-            var outputRoot = string.IsNullOrEmpty(OutputRoot) ? TargetDir : OutputRoot;
+            _logger.Info($"jarファイル {jars.Count} 件を再帰検出: {TargetDir}");
+            _logger.Info($"lang入出力ルート: {outputRoot}");
 
             await Task.Run(() =>
             {
@@ -338,8 +346,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 {
                     _cts!.Token.ThrowIfCancellationRequested();
 
-                    var result = _scanner.ScanJar(jars[i], outputRoot);
+                    var result = _scanner.ScanJar(jars[i], TargetDir, outputRoot);
                     _scanResults.Add(result);
+                    var displayJar = JarPathPolicy.ToDisplayPath(result.RelativeJarPath);
 
                     var vm = ModItemViewModel.FromScanResult(result);
 
@@ -347,15 +356,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     {
                         Mods.Add(vm);
                         ProgressPercent = jars.Count > 0 ? (double)(i + 1) / jars.Count * 100 : 0;
-                        ProgressText = $"スキャン: {i + 1}/{jars.Count} - {result.JarFileName}";
+                        ProgressText = $"スキャン: {i + 1}/{jars.Count} - {displayJar}";
                     });
 
                     if (result.Integrity == JarIntegrity.Corrupted)
-                        _logger.Error($"破損: {result.JarFileName} - {result.ErrorMessage}");
+                        _logger.Error($"破損: {displayJar} - {result.ErrorMessage}");
                     else if (result.Strategy == ProcessingStrategy.NoLang)
-                        _logger.Info($"langなし: {result.JarFileName}");
+                        _logger.Info($"langなし: {displayJar}");
                     else
-                        _logger.Info($"lang検出: {result.JarFileName} ({result.LangCandidates.Count}候補)");
+                        _logger.Info($"lang検出: {displayJar} ({result.LangCandidates.Count}候補)");
                 }
             }, _cts.Token);
 
@@ -395,11 +404,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
 
         var langJars = _scanResults.Where(r => r.Strategy == ProcessingStrategy.LangFound).ToList();
-        var outputRoot = string.IsNullOrEmpty(OutputRoot) ? TargetDir : OutputRoot;
+        var outputRoot = ResolveOutputRoot();
         if (MessageBox.Show(
             $"JARからlangファイルを抽出します。\n" +
             $"- 対象jar: {langJars.Count}件\n" +
             $"- 出力先: {outputRoot}\n" +
+            $"- 元フォルダの相対構造: 保持\n" +
             $"- バックアップ: {(BackupZip ? "あり" : "なし")}\n" +
             $"- langフォールバック: {(LangFallbackEnabled ? $"あり ({LangFallbackSourceName} → {LangFallbackTargetName})" : "なし")}\n\n実行しますか？",
             "lang抽出の確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
@@ -448,7 +458,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 $"警告: {result.WarningCount}\n" +
                 $"スキップ: {result.SkipCount}\n" +
                 $"失敗: {result.FailCount}\n" +
-                $"Cleanup失敗: {result.CleanupFailCount}",
+                $"Cleanup失敗: {result.CleanupFailCount}\n\n" +
+                $"出力先: {outputRoot}",
                 "lang抽出結果", MessageBoxButton.OK,
                 result.FailCount > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
         }
@@ -481,7 +492,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!EnsureScanSnapshotFresh())
             return;
 
-        var outputRoot = string.IsNullOrEmpty(OutputRoot) ? TargetDir : OutputRoot;
+        var outputRoot = ResolveOutputRoot();
         var importer = new JarLangImporter(_logger);
         var plan = importer.CreatePlan(_scanResults, outputRoot);
 
@@ -509,6 +520,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             $"- 対象jar: {plan.ImportableJarCount}件\n" +
             $"- 反映ファイル: {plan.SourceFileCount}件\n" +
             $"- 反映元: {outputRoot}\n" +
+            $"- 元フォルダの相対構造: 保持\n" +
             $"- バックアップ: {(BackupZip ? "あり" : "なし（元に戻すには再取得が必要です）")}" +
             signatureWarning +
             conflictCopyNotice +
@@ -592,15 +604,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool EnsureScanSnapshotFresh()
     {
         var staleJars = _snapshotValidator.Validate(_scanResults);
-        if (staleJars.Count == 0)
+
+        // Watcherで取りこぼしても、新規追加JARを実行直前に検出する。
+        var outputRoot = ResolveOutputRoot();
+        var currentJars = _scanner.EnumerateJars(TargetDir, outputRoot);
+        var scannedPaths = _scanResults
+            .Select(r => Path.GetFullPath(r.JarFilePath))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var addedJars = currentJars
+            .Where(path => !scannedPaths.Contains(Path.GetFullPath(path)))
+            .Select(path => JarPathPolicy.ToDisplayPath(
+                JarPathPolicy.GetRelativeJarPath(TargetDir, path)))
+            .ToList();
+
+        var changes = staleJars
+            .Concat(addedJars.Select(path => $"追加: {path}"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (changes.Count == 0)
             return true;
 
         SnapshotFresh = false;
-        var names = string.Join(", ", staleJars);
+        var names = string.Join(", ", changes);
         StatusBarText = $"変更検出: {names} -> 再スキャンが必要です";
         _logger.Warn($"jarファイル変更検出: {names}");
         MessageBox.Show(
-            $"以下のjarファイルがスキャン後に変更されています。\n再スキャンしてください。\n\n{names}",
+            $"以下のjarファイルがスキャン後に変更されています。\n再スキャンしてください。\n\n{string.Join(Environment.NewLine, changes)}",
             "再スキャンが必要", MessageBoxButton.OK, MessageBoxImage.Warning);
         return false;
     }
@@ -666,7 +697,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             TargetDir = invalidSavedTarget ? string.Empty : savedTarget;
 
             if (settings.OutputRootSameAsTarget)
-                OutputRoot = TargetDir;
+                OutputRoot = JarPathPolicy.GetDefaultOutputRoot(TargetDir);
             else
                 OutputRoot = settings.OutputRoot ?? string.Empty;
 
@@ -733,24 +764,39 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _watcher = new FileSystemWatcher(TargetDir, "*.jar")
         {
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite,
+            IncludeSubdirectories = true,
             EnableRaisingEvents = true
         };
 
         _watcher.Changed += OnJarChanged;
         _watcher.Created += OnJarChanged;
         _watcher.Deleted += OnJarChanged;
-        _watcher.Renamed += (_, _) => OnJarChanged(null, null!);
+        _watcher.Renamed += (sender, e) => OnJarChanged(sender, e);
     }
 
     private void OnJarChanged(object? sender, FileSystemEventArgs e)
     {
+        if (JarPathPolicy.ShouldIgnoreWatchPath(e.FullPath, TargetDir, ResolveOutputRoot()))
+            return;
+
         Application.Current?.Dispatcher.Invoke(() =>
         {
             if (!ScanCompleted) return;
 
+            var displayPath = e.Name ?? "不明";
+            try
+            {
+                displayPath = JarPathPolicy.ToDisplayPath(
+                    Path.GetRelativePath(TargetDir, e.FullPath));
+            }
+            catch
+            {
+                // 表示用の相対化に失敗しても変更検出自体は有効。
+            }
+
             SnapshotFresh = false;
             StatusBarText = "jarファイルの変更を検出しました。再スキャンしてください。";
-            _logger.Warn($"jarファイル変更検出: {e?.Name ?? "不明"}");
+            _logger.Warn($"jarファイル変更検出: {displayPath}");
         });
     }
 }

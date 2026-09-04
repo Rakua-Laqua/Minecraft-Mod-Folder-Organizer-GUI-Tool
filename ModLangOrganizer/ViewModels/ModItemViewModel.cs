@@ -83,7 +83,8 @@ public sealed class ModItemViewModel : ObservableObject
         var ops = scan.PlannedOperations;
         return new ModItemViewModel
         {
-            JarFileName = scan.JarFileName,
+            // 同名JARを区別できるよう、選択ルートからの相対パスを表示する。
+            JarFileName = scan.RelativeJarPath.Replace('\\', '/'),
             Integrity = scan.Integrity,
             LangCount = scan.LangCandidates.Count,
             Strategy = scan.Strategy,

@@ -5,6 +5,10 @@ public sealed class JarScanResult
 {
     public required string JarFileName { get; init; }
     public required string JarFilePath { get; init; }
+
+    /// <summary>選択した親フォルダからJARまでの相対パス。</summary>
+    public required string RelativeJarPath { get; init; }
+
     public JarIntegrity Integrity { get; set; } = JarIntegrity.Unknown;
     public ProcessingStrategy Strategy { get; set; } = ProcessingStrategy.NoLang;
 

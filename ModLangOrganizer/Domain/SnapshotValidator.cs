@@ -10,7 +10,7 @@ public sealed class SnapshotValidator
     private readonly FileSystemService _fs = new();
 
     /// <summary>スキャン時スナップショットと現在の状態を比較</summary>
-    /// <returns>差分のあるjarファイル名リスト（空なら合格）</returns>
+    /// <returns>差分のあるjar相対パス一覧（空なら合格）</returns>
     public List<string> Validate(IEnumerable<JarScanResult> scanResults)
     {
         var staleJars = new List<string>();
@@ -20,14 +20,14 @@ public sealed class SnapshotValidator
             if (result.Snapshot == null) continue;
             if (!File.Exists(result.JarFilePath))
             {
-                staleJars.Add(result.JarFileName);
+                staleJars.Add(result.RelativeJarPath.Replace('\\', '/'));
                 continue;
             }
 
             var current = _fs.BuildSnapshot(result.JarFilePath);
             if (!result.Snapshot.Matches(current))
             {
-                staleJars.Add(result.JarFileName);
+                staleJars.Add(result.RelativeJarPath.Replace('\\', '/'));
             }
         }
 

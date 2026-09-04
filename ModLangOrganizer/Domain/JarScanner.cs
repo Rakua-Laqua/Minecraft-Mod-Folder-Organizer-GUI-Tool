@@ -10,21 +10,46 @@ public sealed class JarScanner
     private readonly ArchiveExtractor _extractor = new();
     private readonly FileSystemService _fs = new();
 
-    /// <summary>指定ディレクトリ直下のjar一覧を取得</summary>
-    public List<string> EnumerateJars(string targetDir)
+    /// <summary>
+    /// 指定ディレクトリ配下のjar一覧を再帰取得する。
+    /// _backup、_lang_output、指定された出力ルート配下、reparse pointは探索しない。
+    /// </summary>
+    public List<string> EnumerateJars(string targetDir, string? outputRoot = null)
     {
-        return Directory.GetFiles(targetDir, "*.jar", SearchOption.TopDirectoryOnly)
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+        if (string.IsNullOrWhiteSpace(targetDir) || !Directory.Exists(targetDir))
+            return [];
+
+        var fullTarget = Path.GetFullPath(targetDir);
+        var results = new List<string>();
+        EnumerateJarsRecursive(fullTarget, fullTarget, outputRoot, results);
+
+        return results
+            .OrderBy(
+                path => JarPathPolicy.ToDisplayPath(
+                    JarPathPolicy.GetRelativeJarPath(fullTarget, path)),
+                StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
-    /// <summary>1つのjarをスキャンしてlang候補を検出する</summary>
+    /// <summary>互換用: JARの親フォルダを対象ルートとして1件スキャンする。</summary>
     public JarScanResult ScanJar(string jarPath, string outputRoot)
     {
+        var targetRoot = Path.GetDirectoryName(Path.GetFullPath(jarPath))
+            ?? throw new InvalidOperationException("JARの親フォルダを取得できません。");
+        return ScanJar(jarPath, targetRoot, outputRoot);
+    }
+
+    /// <summary>1つのjarをスキャンしてlang候補を検出する</summary>
+    public JarScanResult ScanJar(string jarPath, string targetRoot, string outputRoot)
+    {
+        var relativeJarPath = JarPathPolicy.GetRelativeJarPath(targetRoot, jarPath);
+        var displayJarPath = JarPathPolicy.ToDisplayPath(relativeJarPath);
+
         var result = new JarScanResult
         {
             JarFileName = Path.GetFileName(jarPath),
-            JarFilePath = jarPath
+            JarFilePath = Path.GetFullPath(jarPath),
+            RelativeJarPath = relativeJarPath
         };
 
         try
@@ -53,7 +78,7 @@ public sealed class JarScanner
                 result.PlannedOperations.Add(new PlannedOperation
                 {
                     Type = PlannedOperationType.Skip,
-                    Description = $"{result.JarFileName}: langなし → スキップ"
+                    Description = $"{displayJarPath}: langなし → スキップ"
                 });
                 return result;
             }
@@ -92,7 +117,7 @@ public sealed class JarScanner
                 result.PlannedOperations.Add(new PlannedOperation
                 {
                     Type = PlannedOperationType.Skip,
-                    Description = $"{result.JarFileName}: langなし → スキップ"
+                    Description = $"{displayJarPath}: langなし → スキップ"
                 });
                 return result;
             }
@@ -103,7 +128,7 @@ public sealed class JarScanner
             result.PlannedOperations.Add(new PlannedOperation
             {
                 Type = PlannedOperationType.Extract,
-                Description = $"{result.JarFileName}: 一時展開"
+                Description = $"{displayJarPath}: 一時展開"
             });
 
             foreach (var candidate in result.LangCandidates)
@@ -146,7 +171,7 @@ public sealed class JarScanner
             result.PlannedOperations.Add(new PlannedOperation
             {
                 Type = PlannedOperationType.Cleanup,
-                Description = $"{result.JarFileName}: 作業展開フォルダ削除"
+                Description = $"{displayJarPath}: 作業展開フォルダ削除"
             });
         }
         catch (Exception ex)
@@ -157,11 +182,74 @@ public sealed class JarScanner
             result.PlannedOperations.Add(new PlannedOperation
             {
                 Type = PlannedOperationType.Skip,
-                Description = $"{result.JarFileName}: 読み取りエラー → スキップ"
+                Description = $"{displayJarPath}: 読み取りエラー → スキップ"
             });
         }
 
         return result;
+    }
+
+    private void EnumerateJarsRecursive(
+        string currentDir,
+        string targetRoot,
+        string? outputRoot,
+        List<string> results)
+    {
+        DirectoryInfo current;
+        try
+        {
+            current = new DirectoryInfo(currentDir);
+            if (!current.Exists)
+                return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var file in current.EnumerateFiles("*.jar", SearchOption.TopDirectoryOnly))
+            {
+                if (_fs.IsReparsePoint(file.FullName))
+                    continue;
+
+                results.Add(file.FullName);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 読み取れないディレクトリでは、その階層のファイル列挙だけを諦める。
+        }
+
+        List<DirectoryInfo> subDirectories;
+        try
+        {
+            subDirectories = current
+                .EnumerateDirectories("*", SearchOption.TopDirectoryOnly)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        foreach (var subDirectory in subDirectories)
+        {
+            try
+            {
+                if (_fs.IsReparsePoint(subDirectory.FullName))
+                    continue;
+                if (JarPathPolicy.ShouldSkipDirectory(subDirectory.FullName, targetRoot, outputRoot))
+                    continue;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                continue;
+            }
+
+            EnumerateJarsRecursive(subDirectory.FullName, targetRoot, outputRoot, results);
+        }
     }
 
     private static List<string> DetectLangRoots(IEnumerable<string> entries)

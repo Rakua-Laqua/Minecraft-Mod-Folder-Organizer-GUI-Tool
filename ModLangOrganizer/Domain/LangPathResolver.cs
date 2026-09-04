@@ -15,7 +15,29 @@ public static class LangPathResolver
         ValidatePathSegment(jarRootName, "jar名");
 
         var fullOutputRoot = Path.GetFullPath(outputRoot);
-        var jarOutputRoot = Path.GetFullPath(Path.Combine(fullOutputRoot, jarRootName));
+        var outputBase = fullOutputRoot;
+
+        var relativeDirectory = Path.GetDirectoryName(scan.RelativeJarPath);
+        if (!string.IsNullOrWhiteSpace(relativeDirectory) && relativeDirectory != ".")
+        {
+            var segments = relativeDirectory.Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            if (segments.Length == 0 || segments.Any(s => s is "." or ".."))
+                throw new InvalidDataException($"無効なJAR相対フォルダです: {relativeDirectory}");
+
+            foreach (var segment in segments)
+            {
+                ValidatePathSegment(segment, "JAR相対フォルダ名");
+                outputBase = Path.Combine(outputBase, segment);
+            }
+
+            outputBase = Path.GetFullPath(outputBase);
+            EnsureContained(outputBase, fullOutputRoot);
+        }
+
+        var jarOutputRoot = Path.GetFullPath(Path.Combine(outputBase, jarRootName));
         EnsureContained(jarOutputRoot, fullOutputRoot);
         return jarOutputRoot;
     }
@@ -38,9 +60,14 @@ public static class LangPathResolver
     public static string GetDisplayPath(JarScanResult scan, LangCandidate candidate)
     {
         var jarRootName = Path.GetFileNameWithoutExtension(scan.JarFileName);
+        var relativeDirectory = Path.GetDirectoryName(scan.RelativeJarPath);
+        var jarDisplayPath = string.IsNullOrWhiteSpace(relativeDirectory) || relativeDirectory == "."
+            ? jarRootName
+            : $"{relativeDirectory.Replace('\\', '/')}/{jarRootName}";
+
         return scan.LangCandidates.Count > 1
-            ? $"{jarRootName}/{candidate.ModId}"
-            : jarRootName;
+            ? $"{jarDisplayPath}/{candidate.ModId}"
+            : jarDisplayPath;
     }
 
     public static string BuildArchivePath(LangCandidate candidate, string relativePath)
@@ -89,10 +116,19 @@ public static class LangPathResolver
 
     private static void EnsureContained(string path, string root)
     {
-        var normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
+        var normalizedPath = Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        if (!path.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        if (normalizedPath.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (!normalizedPath.StartsWith(
+                normalizedRoot + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+        {
             throw new InvalidDataException($"出力ルート外のパスは使用できません: {path}");
+        }
     }
 }
