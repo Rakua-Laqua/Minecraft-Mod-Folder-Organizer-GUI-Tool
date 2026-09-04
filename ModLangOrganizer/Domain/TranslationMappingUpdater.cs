@@ -76,16 +76,19 @@ public sealed class TranslationMappingUpdater
 
                 var normalizedArchivePath = entry.ArchivePath.TrimStart('/').Replace('\\', '/');
 
-                // 候補数に関わらず、新JARが entry.ArchivePath に対応する有効な LangCandidate を持っていることを必須条件とする
-                var matchedJar = candidateJars.FirstOrDefault(j =>
+                // 候補新JARの中で、ModIdが一致し entry.ArchivePath に対応する LangCandidate を持っているJARを絞り込む
+                var matchedJars = candidateJars.Where(j =>
                     j.LangCandidates.Any(c =>
                     {
+                        if (!c.ModId.Equals(entry.ModId, StringComparison.OrdinalIgnoreCase))
+                            return false;
                         var candidateRoot = c.ArchiveLangPath.TrimStart('/').TrimEnd('/') + "/";
                         return normalizedArchivePath.StartsWith(candidateRoot, StringComparison.OrdinalIgnoreCase);
-                    }));
+                    })).ToList();
 
-                if (matchedJar != null)
+                if (matchedJars.Count == 1)
                 {
+                    var matchedJar = matchedJars[0];
                     var newJarPath = matchedJar.RelativeJarPath.Replace('\\', '/');
                     if (!newJarPath.Equals(oldJarPath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -94,6 +97,10 @@ public sealed class TranslationMappingUpdater
                         entry.LastUpdated = DateTimeOffset.Now;
                         updatedCount++;
                     }
+                }
+                else if (matchedJars.Count > 1)
+                {
+                    _logger.Warn($"MOD更新候補の新JARが複数存在するため自動更新をスキップしました: ModId={entry.ModId}, OldJar={oldJarPath}, 候補=[{string.Join(", ", matchedJars.Select(m => m.RelativeJarPath))}]");
                 }
             }
         }

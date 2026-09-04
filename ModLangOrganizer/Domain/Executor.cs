@@ -193,6 +193,44 @@ public sealed class Executor
                             _logger.Error($"フォールバックコピー失敗: {logLangPath} - {ex.Message}");
                         }
                     }
+
+                    // 既存翻訳ファイルの救済登録:
+                    // 編集フォルダ直下に既に存在する .json / .lang で mapping 未登録のものを救済登録する（ファイル内容は変更しない）
+                    if (mapping != null && Directory.Exists(outLang))
+                    {
+                        try
+                        {
+                            var existingFiles = Directory.GetFiles(outLang);
+                            foreach (var filePath in existingFiles)
+                            {
+                                var ext = Path.GetExtension(filePath);
+                                if (!ext.Equals(".json", StringComparison.OrdinalIgnoreCase) &&
+                                    !ext.Equals(".lang", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    continue;
+                                }
+
+                                var fileName = Path.GetFileName(filePath);
+                                var archivePath = LangPathResolver.BuildArchivePath(candidate, fileName);
+                                var editRelativePath = Path.GetRelativePath(outputRoot, filePath).Replace('\\', '/');
+
+                                var isMapped = mapping.Entries.Any(e =>
+                                    e.EditPath.Equals(editRelativePath, StringComparison.OrdinalIgnoreCase) ||
+                                    (e.JarRelativePath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase) &&
+                                     e.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase)));
+
+                                if (!isMapped)
+                                {
+                                    RegisterMappingEntry(mapping, outputRoot, filePath, scan.RelativeJarPath, candidate.ModId, archivePath);
+                                    _logger.Info($"未登録既存翻訳ファイルをmappingに追加: {editRelativePath} → {archivePath} (ModId: {candidate.ModId})");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Warn($"既存翻訳ファイル救済スキャン失敗: {outLang} - {ex.Message}");
+                        }
+                    }
                 }
 
                 if (allCopySuccess && !hasWarnings)

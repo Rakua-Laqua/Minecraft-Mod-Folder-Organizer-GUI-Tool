@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v2.4.2 - 2026-09-05
+### Fixed
+- **MOD更新候補が複数存在する場合の安全スキップ**: MODのバージョンアップ等で旧JARが削除され、同一ModIdを持つ新JARの候補が2件以上存在する場合（例: 異なるバージョンや派生JARが複数置かれた場合）、先頭を誤採用せず自動更新を安全にスキップして Warning ログを出力するように修正（一致1件のみ自動更新）
+- **旧mapping移行時におけるOutputRoot安全分離**: v2.4.0旧形式（TargetRoot単体）の mapping.json からの自動引き継ぎを、現在 `OutputRoot == TargetRoot`（既定値）の場合のみに限定。カスタムOutputRootが指定されている場合は旧設定を誤適用せず独立して新規管理するように修正
+- **Fallback無効時や手動配置の既存翻訳ファイルに対するmapping救済登録**: `LangFallbackEnabled`（フォールバックコピー）のON/OFFに関わらず、抽出実行時に各Modの編集フォルダ直下に既に存在する未登録の `.json` / `.lang`（手動作成した `ja_jp.json` 等）を、ファイル内容を一切変更することなく安全に `mapping.json` へ登録し、次回JAR反映から漏れないよう救済
+- **JAR反映時の Candidate ModId 厳格照合**: `JarLangImporter` で mapping の `ArchivePath` を検証する際、単にアーカイブ内の lang パスと照合するだけでなく、該当 Candidate の `ModId` が mapping エントリの `ModId` と完全に一致していることをセットで検証するように強化
+
 ## v2.4.1 - 2026-09-05
 ### Fixed
 - **推測反映フォールバックの完全廃止**: mapping が存在しない・空の状態で「JARへ反映」を実行した際に従来の推測フォルダ探索へ逆戻りする問題を解消。mapping を唯一の正解とし、未関連付け状態での推測書き込みを完全に遮断して抽出を促す案内を表示するように改善

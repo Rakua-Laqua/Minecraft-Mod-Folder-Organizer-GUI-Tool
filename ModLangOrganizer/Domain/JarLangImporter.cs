@@ -85,10 +85,16 @@ public sealed class JarLangImporter
                 continue;
             }
 
-            // 4. ArchivePath の厳格検証（対象JARで検出済みの ArchiveLangPath 配下に収まっているか）
+            // 4. ArchivePath の厳格検証（対象JARで検出済みの LangCandidate かつ ModId が一致し、その ArchiveLangPath 配下に収まっているか）
             var normalizedArchivePath = entry.ArchivePath.TrimStart('/').Replace('\\', '/');
             var isValidArchiveLang = scan.LangCandidates.Any(candidate =>
             {
+                if (!string.IsNullOrWhiteSpace(entry.ModId) &&
+                    !candidate.ModId.Equals(entry.ModId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
                 var candidateLangRoot = candidate.ArchiveLangPath.TrimStart('/').TrimEnd('/') + "/";
                 return normalizedArchivePath.StartsWith(candidateLangRoot, StringComparison.OrdinalIgnoreCase);
             });

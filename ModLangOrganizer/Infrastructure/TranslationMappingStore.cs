@@ -72,13 +72,22 @@ public sealed class TranslationMappingStore
         var backupPath = mappingPath + ".bak";
 
         // 新しいペアのパスが存在しない場合、後方互換として targetRoot 単体パスを確認
+        // ただし、旧mappingのEditPathはTargetRoot相対のため、OutputRoot == TargetRoot（既定値）の場合のみ自動移行を許可する
         if (!File.Exists(mappingPath) && !string.IsNullOrWhiteSpace(outputRoot))
         {
-            var legacyPath = GetMappingPath(targetRoot, null);
-            if (File.Exists(legacyPath))
+            var isDefaultOutput = string.Equals(
+                Path.GetFullPath(targetRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(outputRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
+
+            if (isDefaultOutput)
             {
-                mappingPath = legacyPath;
-                backupPath = legacyPath + ".bak";
+                var legacyPath = GetMappingPath(targetRoot, null);
+                if (File.Exists(legacyPath))
+                {
+                    mappingPath = legacyPath;
+                    backupPath = legacyPath + ".bak";
+                }
             }
         }
 
