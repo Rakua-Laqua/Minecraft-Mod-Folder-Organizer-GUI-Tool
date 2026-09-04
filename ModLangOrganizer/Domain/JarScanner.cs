@@ -146,25 +146,14 @@ public sealed class JarScanner
                 foreach (var file in candidate.Files)
                 {
                     var destPath = Path.Combine(outLang, file);
-                    if (File.Exists(destPath))
+                    result.PlannedOperations.Add(new PlannedOperation
                     {
-                        // 既存ファイルがある → 実行時に比較（スキャン時点ではConflictCopy候補）
-                        result.PlannedOperations.Add(new PlannedOperation
-                        {
-                            Type = PlannedOperationType.ConflictCopy,
-                            Description = $"競合可能性: {logLangPath}/{file}",
-                            DestinationPath = destPath
-                        });
-                    }
-                    else
-                    {
-                        result.PlannedOperations.Add(new PlannedOperation
-                        {
-                            Type = PlannedOperationType.Copy,
-                            Description = $"コピー: {logLangPath}/{file}",
-                            DestinationPath = destPath
-                        });
-                    }
+                        Type = PlannedOperationType.Copy,
+                        Description = File.Exists(destPath)
+                            ? $"更新候補: {logLangPath}/{file}"
+                            : $"コピー: {logLangPath}/{file}",
+                        DestinationPath = destPath
+                    });
                 }
             }
 
