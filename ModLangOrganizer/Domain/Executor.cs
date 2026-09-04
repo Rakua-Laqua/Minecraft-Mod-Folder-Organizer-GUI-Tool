@@ -89,7 +89,9 @@ public sealed class Executor
                     _fs.EnsureDir(outLang);
                     _logger.Info($"ディレクトリ作成: {outLang}");
 
-                    var files = _fs.EnumerateFilesNoFollow(srcLang).ToList();
+                    // Minecraftのlangファイルはlang直下のみを対象にする。
+                    // ネストしたlang/lang等を再帰コピーすると、JAR反映時に重複パスを増殖させるため除外する。
+                    var files = _fs.EnumerateFilesTopLevelNoFollow(srcLang).ToList();
                     foreach (var srcFile in files)
                     {
                         if (options.CancelGranularity == CancelGranularity.PerFile)
