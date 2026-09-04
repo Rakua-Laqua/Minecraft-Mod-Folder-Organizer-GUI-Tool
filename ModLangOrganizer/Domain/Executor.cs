@@ -10,7 +10,7 @@ public sealed class Executor
 {
     private readonly ArchiveExtractor _extractor = new();
     private readonly FileSystemService _fs = new();
-    private readonly ConflictResolver _conflict = new();
+    private readonly LangFileMerger _langMerger = new();
     private readonly Logger _logger;
 
     public Executor(Logger logger)
@@ -58,6 +58,7 @@ public sealed class Executor
 
             string? workDir = null;
             bool allCopySuccess = true;
+            bool hasWarnings = false;
             var finalStatus = ModStatus.Success;
 
             try
@@ -67,9 +68,7 @@ public sealed class Executor
                 _logger.Info($"展開開始: {scan.JarFileName} -> {workDir}");
                 _extractor.ExtractSecure(scan.JarFilePath, workDir, ct);
 
-                var jarRootName = Path.GetFileNameWithoutExtension(scan.JarFileName);
-
-                // 2. Copy lang files
+                // 2. Copy / merge lang files
                 foreach (var candidate in scan.LangCandidates)
                 {
                     if (options.CancelGranularity == CancelGranularity.PerFile)
@@ -89,44 +88,90 @@ public sealed class Executor
                     _fs.EnsureDir(outLang);
                     _logger.Info($"ディレクトリ作成: {outLang}");
 
-                    // Minecraftのlangファイルはlang直下のみを対象にする。
-                    // ネストしたlang/lang等を再帰コピーすると、JAR反映時に重複パスを増殖させるため除外する。
-                    var files = _fs.EnumerateFilesTopLevelNoFollow(srcLang).ToList();
-                    foreach (var srcFile in files)
+                    // 旧競合コピーはJAR由来の退避ファイルなので、新方式への移行時に整理する。
+                    try
+                    {
+                        var removedConflictCopies = _langMerger.CleanupLegacyConflictCopies(outLang);
+                        if (removedConflictCopies > 0)
+                            _logger.Info($"旧競合コピー削除: {logLangPath} ({removedConflictCopies}件)");
+                    }
+                    catch (Exception ex)
+                    {
+                        hasWarnings = true;
+                        _logger.Warn($"旧競合コピー削除失敗: {logLangPath} - {ex.Message}");
+                    }
+
+                    // スキャン時に確定したlang直下の翻訳ファイルだけを処理する。
+                    // lang/lang等のネストやlang以外の補助ファイルは対象にしない。
+                    foreach (var relativePath in candidate.Files.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
                     {
                         if (options.CancelGranularity == CancelGranularity.PerFile)
                             ct.ThrowIfCancellationRequested();
 
-                        var relativePath = Path.GetRelativePath(srcLang, srcFile);
+                        var srcFile = Path.Combine(srcLang, relativePath);
                         var destPath = Path.Combine(outLang, relativePath);
 
                         try
                         {
-                            if (File.Exists(destPath))
+                            if (!File.Exists(srcFile))
+                                throw new FileNotFoundException("スキャン時に存在したlangファイルが展開後に見つかりません。", srcFile);
+
+                            if (!File.Exists(destPath))
                             {
-                                if (_fs.IsSameContent(srcFile, destPath))
+                                _fs.CopyFile(srcFile, destPath);
+                                _logger.Info($"コピー: {logLangPath}/{relativePath}");
+                                continue;
+                            }
+
+                            if (_fs.IsSameContent(srcFile, destPath))
+                            {
+                                _logger.Info($"同一内容のためスキップ: {logLangPath}/{relativePath}");
+                                continue;
+                            }
+
+                            if (IsTranslationMergeTarget(relativePath, options.LangFallbackTargetName))
+                            {
+                                var mergeResult = _langMerger.MergeTargetFromJar(srcFile, destPath);
+
+                                if (mergeResult.UsedFallbackOverwrite)
                                 {
-                                    _logger.Info($"同一内容のためスキップ: {logLangPath}/{relativePath}");
+                                    hasWarnings = true;
+                                    _logger.Warn(
+                                        $"翻訳マージ不可のためJAR内容で上書き: {logLangPath}/{relativePath} - " +
+                                        mergeResult.Warning);
+                                }
+                                else if (mergeResult.WasMerged)
+                                {
+                                    _logger.Info(
+                                        $"翻訳マージ: {logLangPath}/{relativePath} " +
+                                        $"(既存値維持:{mergeResult.PreservedKeys}, 新規キー:{mergeResult.AddedKeys}, " +
+                                        $"削除キー:{mergeResult.RemovedKeys}, JAR行数:{mergeResult.SourceLineCount})");
+
+                                    if (mergeResult.SourceLineCount != mergeResult.OutputLineCount)
+                                    {
+                                        hasWarnings = true;
+                                        _logger.Warn(
+                                            $"行構成検証不一致: {logLangPath}/{relativePath} " +
+                                            $"(JAR:{mergeResult.SourceLineCount}, 出力:{mergeResult.OutputLineCount})");
+                                    }
                                 }
                                 else
                                 {
-                                    var conflictName = _conflict.BuildConflictName(
-                                        Path.GetFileName(destPath), jarRootName, Path.GetDirectoryName(destPath)!);
-                                    var conflictPath = Path.Combine(Path.GetDirectoryName(destPath)!, conflictName);
-                                    _fs.CopyFile(srcFile, conflictPath);
-                                    _logger.Warn($"競合コピー: {logLangPath}/{conflictName}");
+                                    _logger.Info($"JAR内容で上書き: {logLangPath}/{relativePath}");
                                 }
                             }
                             else
                             {
-                                _fs.CopyFile(srcFile, destPath);
-                                _logger.Info($"コピー: {logLangPath}/{relativePath}");
+                                // 翻訳ターゲット以外はJAR側を正として上書きする。
+                                // これによりMOD更新時の原文・他言語ファイルを古い抽出内容のまま残さない。
+                                _langMerger.OverwriteFromJar(srcFile, destPath);
+                                _logger.Info($"JAR内容で上書き: {logLangPath}/{relativePath}");
                             }
                         }
                         catch (Exception ex)
                         {
                             allCopySuccess = false;
-                            _logger.Error($"コピー失敗: {logLangPath}/{relativePath} - {ex.Message}");
+                            _logger.Error($"コピー/マージ失敗: {logLangPath}/{relativePath} - {ex.Message}");
                         }
                     }
 
@@ -147,7 +192,7 @@ public sealed class Executor
                     }
                 }
 
-                if (allCopySuccess)
+                if (allCopySuccess && !hasWarnings)
                 {
                     result.SuccessCount++;
                     _logger.Info($"成功: {scan.JarFileName}");
@@ -155,7 +200,7 @@ public sealed class Executor
                 else
                 {
                     result.WarningCount++;
-                    _logger.Warn($"一部失敗あり: {scan.JarFileName}");
+                    _logger.Warn($"警告あり: {scan.JarFileName}");
                     finalStatus = ModStatus.Warning;
                 }
             }
@@ -263,5 +308,21 @@ public sealed class Executor
             _fs.CopyFile(srcFile, targetPath);
             _logger.Info($"フォールバックコピー: {langLogPath}/{Path.GetFileName(srcFile)} → {targetFileName}");
         }
+    }
+
+    private static bool IsTranslationMergeTarget(string relativePath, string configuredTargetName)
+    {
+        if (string.IsNullOrWhiteSpace(configuredTargetName))
+            return false;
+
+        var extension = Path.GetExtension(relativePath);
+        if (!extension.Equals(".json", StringComparison.OrdinalIgnoreCase) &&
+            !extension.Equals(".lang", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return Path.GetFileNameWithoutExtension(relativePath)
+            .Equals(configuredTargetName.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 }
