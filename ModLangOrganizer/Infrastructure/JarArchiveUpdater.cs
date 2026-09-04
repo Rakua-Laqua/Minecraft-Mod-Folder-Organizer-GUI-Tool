@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using System.Text;
 using ModLangOrganizer.Models;
 
 namespace ModLangOrganizer.Infrastructure;
@@ -60,11 +61,49 @@ public sealed class JarArchiveUpdater
             // 既存JARを読み取り専用で開き、新規一時JAR（Createモード）へ再構築する
             using (var sourceArchive = ZipFile.OpenRead(jarPath))
             {
-                // 署名付きJARの場合、署名対象エントリの改変をチェックして保護
-                ValidateSignatureProtection(jarPath, sourceArchive, importFiles);
+                // 1. 各反映対象ファイルについて、既存エントリと内容を比較
+                var filesToUpdate = new List<JarImportFile>();
+                var filesToAdd = new List<JarImportFile>();
+                var unchangedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                // 変更対象エントリパス一覧
-                var importMap = importFiles.ToDictionary(
+                foreach (var importFile in importFiles)
+                {
+                    var existingEntry = sourceArchive.Entries.FirstOrDefault(e =>
+                        e.FullName.Equals(importFile.ArchivePath, StringComparison.OrdinalIgnoreCase));
+
+                    if (existingEntry == null)
+                    {
+                        filesToAdd.Add(importFile);
+                    }
+                    else if (IsSameContent(existingEntry, importFile.SourcePath, cancelPerFile, ct))
+                    {
+                        unchangedPaths.Add(existingEntry.FullName);
+                        unchanged++;
+                    }
+                    else
+                    {
+                        filesToUpdate.Add(importFile);
+                        updated++;
+                    }
+                }
+
+                // 2. 実際に内容が変更される既存エントリ（filesToUpdate）についてのみ署名保護をチェック
+                // （内容が同一のファイルや新規追加ファイルは署名ダイジェストを破壊しないためブロックしない）
+                if (filesToUpdate.Count > 0)
+                {
+                    ValidateSignatureProtection(jarPath, sourceArchive, filesToUpdate);
+                }
+
+                // 変更対象が0件（すべて同一内容）の場合は書き換え不要
+                if (filesToAdd.Count == 0 && filesToUpdate.Count == 0)
+                {
+                    return new JarArchiveUpdateResult(0, 0, unchanged);
+                }
+
+                added = filesToAdd.Count;
+
+                // 3. Createモードで新しい一時アーカイブを構築
+                var updateMap = filesToUpdate.ToDictionary(
                     f => f.ArchivePath,
                     StringComparer.OrdinalIgnoreCase);
 
@@ -77,43 +116,38 @@ public sealed class JarArchiveUpdater
                     FileOptions.None))
                 using (var destinationArchive = new ZipArchive(tempStream, ZipArchiveMode.Create, leaveOpen: false))
                 {
-                    // 1. 既存エントリのうち、更新対象ではないものをコピー
+                    // 既存エントリのコピー（変更対象以外、および同一内容のもの）
                     foreach (var sourceEntry in sourceArchive.Entries)
                     {
                         ThrowIfPerFileCancellationRequested(cancelPerFile, ct);
 
-                        if (importMap.TryGetValue(sourceEntry.FullName, out var importFile))
+                        if (updateMap.ContainsKey(sourceEntry.FullName))
                         {
-                            // 内容が全く同じかチェック
-                            if (IsSameContent(sourceEntry, importFile.SourcePath, cancelPerFile, ct))
-                            {
-                                unchanged++;
-                                CopyExistingEntry(sourceEntry, destinationArchive, cancelPerFile, ct);
-                                importMap.Remove(sourceEntry.FullName); // 処理済み
-                            }
-                            else
-                            {
-                                // 内容が異なるため、後で新しい内容で書き出す
-                                updated++;
-                            }
+                            // 内容が更新されるエントリは後で新規データとして書き出す
                             continue;
                         }
 
-                        // 変更対象外のエントリをそのままコピー
+                        // 変更対象外、または同一内容のエントリをそのままコピー
                         CopyExistingEntry(sourceEntry, destinationArchive, cancelPerFile, ct);
                     }
 
-                    // 2. 新規追加、および内容が更新されたエントリを書き出す
-                    foreach (var kvp in importMap)
+                    // 更新エントリの書き出し
+                    foreach (var importFile in filesToUpdate)
                     {
                         ThrowIfPerFileCancellationRequested(cancelPerFile, ct);
 
-                        var importFile = kvp.Value;
-                        var isNew = !sourceArchive.Entries.Any(e => e.FullName.Equals(importFile.ArchivePath, StringComparison.OrdinalIgnoreCase));
-                        if (isNew)
-                        {
-                            added++;
-                        }
+                        var newEntry = destinationArchive.CreateEntry(importFile.ArchivePath, CompressionLevel.Optimal);
+                        newEntry.LastWriteTime = DateTimeOffset.Now;
+
+                        using var sourceStream = File.OpenRead(importFile.SourcePath);
+                        using var destStream = newEntry.Open();
+                        CopyTo(sourceStream, destStream, cancelPerFile, ct);
+                    }
+
+                    // 新規追加エントリの書き出し
+                    foreach (var importFile in filesToAdd)
+                    {
+                        ThrowIfPerFileCancellationRequested(cancelPerFile, ct);
 
                         var newEntry = destinationArchive.CreateEntry(importFile.ArchivePath, CompressionLevel.Optimal);
                         newEntry.LastWriteTime = DateTimeOffset.Now;
@@ -125,18 +159,15 @@ public sealed class JarArchiveUpdater
                 }
             }
 
-            if (added == 0 && updated == 0)
-                return new JarArchiveUpdateResult(added, updated, unchanged);
-
             ThrowIfPerFileCancellationRequested(cancelPerFile, ct);
 
-            // Java ZipInputStream 互換性（STORED + Data Descriptor 検出）の厳密検証
+            // 4. Java ZipInputStream 互換性（中央ディレクトリ走査）の厳密検証
             ValidateZipCompatibility(tempPath);
 
-            // インポートされたファイルの内容一致検証
+            // 5. インポートされたファイルの内容一致検証
             ValidateImportedFiles(tempPath, importFiles, cancelPerFile, ct);
 
-            // 元ファイルと安全にアトミック置換
+            // 6. 元ファイルと安全にアトミック置換
             ReplaceOriginal(tempPath, jarPath);
 
             return new JarArchiveUpdateResult(added, updated, unchanged);
@@ -148,59 +179,25 @@ public sealed class JarArchiveUpdater
     }
 
     /// <summary>
-    /// 署名付きJARの署名対象ファイルを変更しようとしていないか検証する。
-    /// 署名対象（MANIFEST.MFや.SFにダイジェストが記録されているファイル）の改変は
-    /// Javaの改ざん検知（SecurityException）を引き起こすため拒否する。
+    /// 署名付きJARにおいて、署名ダイジェストが存在する既存エントリが改変されようとしていないか検証する。
+    /// MANIFEST.MF および *.SF のセクションを継続行（72バイト折り返し）込みでパースし、
+    /// ダイジェスト属性を持つエントリのみを保護対象とする。
     /// </summary>
     private static void ValidateSignatureProtection(
         string jarPath,
         ZipArchive sourceArchive,
-        IReadOnlyList<JarImportFile> importFiles)
+        IReadOnlyList<JarImportFile> modifiedFiles)
     {
         var hasSignature = sourceArchive.Entries.Any(IsJarSignatureEntry);
         if (!hasSignature)
             return;
 
-        // MANIFEST.MF または .SF ファイルから署名対象のエントリ名を収集
-        var signedEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var signedEntries = ParseSignedEntries(sourceArchive);
+        if (signedEntries.Count == 0)
+            return;
 
-        var manifestEntry = sourceArchive.Entries.FirstOrDefault(e =>
-            e.FullName.Equals("META-INF/MANIFEST.MF", StringComparison.OrdinalIgnoreCase));
-        if (manifestEntry != null)
-        {
-            using var reader = new StreamReader(manifestEntry.Open());
-            string? line;
-            while ((line = reader.ReadLine()) != null)
-            {
-                if (line.StartsWith("Name:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var name = line["Name:".Length..].Trim();
-                    if (!string.IsNullOrEmpty(name))
-                        signedEntries.Add(name);
-                }
-            }
-        }
-
-        var sfEntries = sourceArchive.Entries.Where(e =>
-            e.FullName.StartsWith("META-INF/", StringComparison.OrdinalIgnoreCase) &&
-            e.FullName.EndsWith(".SF", StringComparison.OrdinalIgnoreCase));
-        foreach (var sf in sfEntries)
-        {
-            using var reader = new StreamReader(sf.Open());
-            string? line;
-            while ((line = reader.ReadLine()) != null)
-            {
-                if (line.StartsWith("Name:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var name = line["Name:".Length..].Trim();
-                    if (!string.IsNullOrEmpty(name))
-                        signedEntries.Add(name);
-                }
-            }
-        }
-
-        // 今回変更しようとしているファイルが署名対象に含まれているか検査
-        var blocked = importFiles
+        // 今回内容が変更されるファイルが署名ダイジェスト対象に含まれているか検査
+        var blocked = modifiedFiles
             .Where(f => signedEntries.Contains(f.ArchivePath))
             .Select(f => f.ArchivePath)
             .ToList();
@@ -212,59 +209,180 @@ public sealed class JarArchiveUpdater
     }
 
     /// <summary>
-    /// ZIPヘッダーを走査し、JavaのZipInputStreamでZipExceptionを引き起こす
+    /// MANIFEST.MF および *.SF から、署名ダイジェスト属性（*-Digest:）を持つエントリパスを収集する。
+    /// 仕様通りの継続行（先頭スペース/タブ）連結とセクション分割を行う。
+    /// </summary>
+    public static HashSet<string> ParseSignedEntries(ZipArchive archive)
+    {
+        var signedEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var manifestFiles = archive.Entries.Where(e =>
+            e.FullName.Equals("META-INF/MANIFEST.MF", StringComparison.OrdinalIgnoreCase) ||
+            (e.FullName.StartsWith("META-INF/", StringComparison.OrdinalIgnoreCase) && e.FullName.EndsWith(".SF", StringComparison.OrdinalIgnoreCase)));
+
+        foreach (var entry in manifestFiles)
+        {
+            using var stream = entry.Open();
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+
+            // 1. 継続行（先頭スペースまたはタブ）を連結した論理行リストを構築
+            var logicalLines = new List<string>();
+            string? rawLine;
+            while ((rawLine = reader.ReadLine()) != null)
+            {
+                if (rawLine.StartsWith(' ') || rawLine.StartsWith('\t'))
+                {
+                    if (logicalLines.Count > 0)
+                    {
+                        // 前の行の末尾に連結（先頭の空白文字1つを除く）
+                        logicalLines[^1] += rawLine[1..];
+                    }
+                }
+                else
+                {
+                    logicalLines.Add(rawLine);
+                }
+            }
+
+            // 2. 空行区切りでセクションをパース
+            string? currentName = null;
+            var hasDigest = false;
+
+            foreach (var line in logicalLines)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    // セクションの終端
+                    if (!string.IsNullOrEmpty(currentName) && hasDigest)
+                    {
+                        signedEntries.Add(currentName);
+                    }
+                    currentName = null;
+                    hasDigest = false;
+                    continue;
+                }
+
+                if (line.StartsWith("Name:", StringComparison.OrdinalIgnoreCase))
+                {
+                    currentName = line["Name:".Length..].Trim();
+                }
+                else if (line.Contains("-Digest:", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasDigest = true;
+                }
+            }
+
+            // 最終セクション
+            if (!string.IsNullOrEmpty(currentName) && hasDigest)
+            {
+                signedEntries.Add(currentName);
+            }
+        }
+
+        return signedEntries;
+    }
+
+    /// <summary>
+    /// ZIPの中央ディレクトリ（Central Directory）を正確に走査し、
+    /// JavaのZipInputStreamでZipExceptionを引き起こす
     /// 「STORED (0) なのに bit 3 (Data Descriptor) が立っている」不正エントリが存在しないことを検証する。
+    /// 中央ディレクトリおよびローカルヘッダーの双方をピンポイントで検査するため、
+    /// 圧縮データストリームの誤判定を起こさず確実に検証できる。
     /// </summary>
     public static void ValidateZipCompatibility(string zipPath)
     {
         using var fs = File.OpenRead(zipPath);
         using var reader = new BinaryReader(fs);
 
-        while (fs.Position < fs.Length - 4)
+        if (fs.Length < 22)
+            throw new InvalidDataException("ZIPファイルのサイズが不正です。");
+
+        // 1. アーカイブ末尾から End of Central Directory Record (EOCD: 0x06054b50) を探索
+        var maxSearchLength = (int)Math.Min(fs.Length, 65557); // 最大コメント長 65535 + EOCD 22
+        fs.Seek(-maxSearchLength, SeekOrigin.End);
+        var searchBuffer = reader.ReadBytes(maxSearchLength);
+
+        var eocdOffsetInSearch = -1;
+        for (var i = searchBuffer.Length - 22; i >= 0; i--)
         {
-            var sig = reader.ReadUInt32();
-            if (sig == 0x04034b50) // Local File Header: PK\x03\x04
+            if (searchBuffer[i] == 0x50 &&
+                searchBuffer[i + 1] == 0x4b &&
+                searchBuffer[i + 2] == 0x05 &&
+                searchBuffer[i + 3] == 0x06)
             {
-                var versionNeeded = reader.ReadUInt16();
-                var generalPurposeFlag = reader.ReadUInt16();
-                var compressionMethod = reader.ReadUInt16();
-                var lastModTime = reader.ReadUInt16();
-                var lastModDate = reader.ReadUInt16();
-                var crc32 = reader.ReadUInt32();
-                var compressedSize = reader.ReadUInt32();
-                var uncompressedSize = reader.ReadUInt32();
-                var fileNameLength = reader.ReadUInt16();
-                var extraFieldLength = reader.ReadUInt16();
-
-                var fileNameBytes = reader.ReadBytes(fileNameLength);
-                var fileName = System.Text.Encoding.UTF8.GetString(fileNameBytes);
-                fs.Seek(extraFieldLength, SeekOrigin.Current);
-
-                // Java ZipInputStream のチェック:
-                // if (method == STORED && (flag & 8) != 0) throw ZipException
-                var hasDataDescriptor = (generalPurposeFlag & 0x0008) != 0;
-                if (compressionMethod == 0 && hasDataDescriptor)
-                {
-                    throw new InvalidDataException(
-                        $"Java互換性エラー: エントリ '{fileName}' は非圧縮(STORED)ですが Data Descriptor フラグが付与されています。" +
-                        "JavaのZipInputStreamで破損と判定されます。");
-                }
-
-                // データ部分をスキップ
-                if (!hasDataDescriptor)
-                {
-                    fs.Seek(compressedSize, SeekOrigin.Current);
-                }
-                else
-                {
-                    // Data Descriptor付きの場合（通常Createモードでは発生しないが、安全のためシグネチャ探索）
-                }
-            }
-            else if (sig == 0x02014b50) // Central Directory Header: PK\x01\x02
-            {
-                // Central Directory に達したらローカルエントリの走査終了
+                eocdOffsetInSearch = i;
                 break;
             }
+        }
+
+        if (eocdOffsetInSearch == -1)
+            throw new InvalidDataException("End of Central Directory Record (EOCD) が見つかりません。");
+
+        var eocdPosition = fs.Length - maxSearchLength + eocdOffsetInSearch;
+        fs.Seek(eocdPosition + 8, SeekOrigin.Begin);
+        var entriesOnDisk = reader.ReadUInt16();
+        var totalEntries = reader.ReadUInt16();
+        var cdSize = reader.ReadUInt32();
+        var cdOffset = reader.ReadUInt32();
+
+        // 2. 中央ディレクトリの全エントリを走査
+        fs.Seek(cdOffset, SeekOrigin.Begin);
+        for (var i = 0; i < totalEntries; i++)
+        {
+            var cdSig = reader.ReadUInt32();
+            if (cdSig != 0x02014b50) // PK\x01\x02
+                throw new InvalidDataException($"Central Directory Record のシグネチャが不正です (エントリ {i + 1}/{totalEntries})。");
+
+            var versionMadeBy = reader.ReadUInt16();
+            var versionNeeded = reader.ReadUInt16();
+            var generalPurposeFlag = reader.ReadUInt16();
+            var compressionMethod = reader.ReadUInt16();
+            var lastModTime = reader.ReadUInt16();
+            var lastModDate = reader.ReadUInt16();
+            var crc32 = reader.ReadUInt32();
+            var compressedSize = reader.ReadUInt32();
+            var uncompressedSize = reader.ReadUInt32();
+            var fileNameLength = reader.ReadUInt16();
+            var extraFieldLength = reader.ReadUInt16();
+            var fileCommentLength = reader.ReadUInt16();
+            var diskNumberStart = reader.ReadUInt16();
+            var internalAttributes = reader.ReadUInt16();
+            var externalAttributes = reader.ReadUInt32();
+            var localHeaderOffset = reader.ReadUInt32();
+
+            var fileNameBytes = reader.ReadBytes(fileNameLength);
+            var fileName = Encoding.UTF8.GetString(fileNameBytes);
+            fs.Seek(extraFieldLength + fileCommentLength, SeekOrigin.Current);
+
+            // 中央ディレクトリヘッダーにおけるチェック
+            var hasDataDescriptor = (generalPurposeFlag & 0x0008) != 0;
+            if (compressionMethod == 0 && hasDataDescriptor)
+            {
+                throw new InvalidDataException(
+                    $"Java互換性エラー: エントリ '{fileName}' は非圧縮(STORED)ですが Data Descriptor フラグが付与されています (CD)。" +
+                    "JavaのZipInputStreamでZipExceptionとなります。");
+            }
+
+            // 3. Local File Header 側も直接検査
+            var currentPos = fs.Position;
+            fs.Seek(localHeaderOffset, SeekOrigin.Begin);
+            var localSig = reader.ReadUInt32();
+            if (localSig != 0x04034b50) // PK\x03\x04
+                throw new InvalidDataException($"Local File Header のシグネチャが不正です: '{fileName}'");
+
+            fs.Seek(2, SeekOrigin.Current); // versionNeeded
+            var localFlag = reader.ReadUInt16();
+            var localMethod = reader.ReadUInt16();
+
+            var localHasDataDescriptor = (localFlag & 0x0008) != 0;
+            if (localMethod == 0 && localHasDataDescriptor)
+            {
+                throw new InvalidDataException(
+                    $"Java互換性エラー: エントリ '{fileName}' は非圧縮(STORED)ですが Local Header に Data Descriptor フラグが付与されています。" +
+                    "JavaのZipInputStreamでZipExceptionとなります。");
+            }
+
+            fs.Seek(currentPos, SeekOrigin.Begin);
         }
     }
 

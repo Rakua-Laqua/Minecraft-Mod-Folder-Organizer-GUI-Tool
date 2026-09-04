@@ -11,6 +11,7 @@ public sealed class AppSettings
     public bool LangFallbackEnabled { get; set; }
     public string LangFallbackSourceName { get; set; } = "en_us";
     public string LangFallbackTargetName { get; set; } = "ja_jp";
+    public int ResourcePackFormat { get; set; } = 15;
 
     public AppSettings Clone()
     {
@@ -23,7 +24,8 @@ public sealed class AppSettings
             CancelGranularity = CancelGranularity,
             LangFallbackEnabled = LangFallbackEnabled,
             LangFallbackSourceName = LangFallbackSourceName,
-            LangFallbackTargetName = LangFallbackTargetName
+            LangFallbackTargetName = LangFallbackTargetName,
+            ResourcePackFormat = ResourcePackFormat
         };
     }
 }

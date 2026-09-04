@@ -26,6 +26,28 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _langFallbackEnabled;
     private string _langFallbackSourceName = "en_us";
     private string _langFallbackTargetName = "ja_jp";
+
+    public static readonly IReadOnlyList<PackFormatOption> AvailablePackFormats = new List<PackFormatOption>
+    {
+        new() { Format = 46, DisplayName = "1.21.4 (format 46)" },
+        new() { Format = 42, DisplayName = "1.21.2 - 1.21.3 (format 42)" },
+        new() { Format = 34, DisplayName = "1.21 - 1.21.1 (format 34)" },
+        new() { Format = 32, DisplayName = "1.20.5 - 1.20.6 (format 32)" },
+        new() { Format = 22, DisplayName = "1.20.3 - 1.20.4 (format 22)" },
+        new() { Format = 18, DisplayName = "1.20.2 (format 18)" },
+        new() { Format = 15, DisplayName = "1.20 - 1.20.1 (format 15)" },
+        new() { Format = 13, DisplayName = "1.19.4 (format 13)" },
+        new() { Format = 12, DisplayName = "1.19.3 (format 12)" },
+        new() { Format = 9,  DisplayName = "1.19 - 1.19.2 (format 9)" },
+        new() { Format = 8,  DisplayName = "1.18.x (format 8)" },
+        new() { Format = 7,  DisplayName = "1.17.x (format 7)" },
+        new() { Format = 6,  DisplayName = "1.16.2 - 1.16.5 (format 6)" },
+        new() { Format = 5,  DisplayName = "1.15 - 1.16.1 (format 5)" },
+        new() { Format = 4,  DisplayName = "1.13 - 1.14.4 (format 4)" },
+        new() { Format = 3,  DisplayName = "1.6.1 - 1.12.2 (format 3)" },
+    };
+
+    private PackFormatOption _selectedPackFormat = AvailablePackFormats[6]; // format 15
     private bool _isScanning;
     private bool _isExecuting;
     private bool _scanCompleted;
@@ -161,6 +183,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _langFallbackTargetName, value ?? string.Empty))
                 SaveSettings();
+        }
+    }
+
+    public IReadOnlyList<PackFormatOption> PackFormatOptions => AvailablePackFormats;
+
+    public PackFormatOption SelectedPackFormat
+    {
+        get => _selectedPackFormat;
+        set
+        {
+            if (value != null && SetProperty(ref _selectedPackFormat, value))
+            {
+                SaveSettings();
+            }
         }
     }
 
@@ -538,12 +574,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var selectedFormat = SelectedPackFormat;
+
         if (MessageBox.Show(
             $"翻訳ファイルをMinecraft用リソースパックとして出力します。\n" +
             $"- 対象Mod: {plan.ImportableJarCount}件\n" +
             $"- 翻訳ファイル: {plan.SourceFileCount}件\n" +
             $"- 出力先: {targetRpFolder}\n" +
-            $"- pack_format: 15 (1.20.1用)\n\n" +
+            $"- pack_format: {selectedFormat.Format} ({selectedFormat.DisplayName})\n\n" +
             "※MODのJARファイルを改変しないため、ZIP破損や署名検証エラーの心配がありません。\n実行しますか？",
             "リソースパック出力の確認", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
@@ -560,20 +598,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             var builder = new ResourcePackBuilder();
             var buildResult = await Task.Run(() =>
-                builder.BuildFolder(plan, targetRpFolder, packFormat: 15, description: "ModLangOrganizer Translations"),
+                builder.BuildFolder(plan, targetRpFolder, packFormat: selectedFormat.Format, description: "ModLangOrganizer Translations", ct: _cts.Token),
                 _cts.Token);
 
-            StatusBarText = $"リソースパック生成完了: {buildResult.ModCount} Mod ({buildResult.FileCount} ファイル)";
+            var skippedCount = buildResult.SkippedNonStandardPaths.Count;
+            if (skippedCount > 0)
+            {
+                _logger.Warn($"リソースパック非標準パスをスキップ ({skippedCount}件): {string.Join(", ", buildResult.SkippedNonStandardPaths)}");
+            }
+
+            StatusBarText = $"リソースパック生成完了: {buildResult.ModCount} Mod ({buildResult.FileCount} ファイル)" +
+                (skippedCount > 0 ? $" ※非標準パス {skippedCount}件除外" : "");
             ProgressText = "リソースパック出力完了";
             _logger.Info($"リソースパック出力完了: {buildResult.DestinationPath} ({buildResult.ModCount} Mod, {buildResult.FileCount} ファイル)");
 
-            MessageBox.Show(
-                $"リソースパックの生成が完了しました！\n\n" +
+            var message = $"リソースパックの生成が完了しました！\n\n" +
                 $"Mod数: {buildResult.ModCount}\n" +
                 $"ファイル数: {buildResult.FileCount}\n" +
-                $"出力先: {buildResult.DestinationPath}\n\n" +
-                "Minecraftの［設定］→［リソースパック］で有効化してください。",
-                "リソースパック出力完了", MessageBoxButton.OK, MessageBoxImage.Information);
+                $"形式: {selectedFormat.DisplayName}\n" +
+                $"出力先: {buildResult.DestinationPath}\n\n";
+
+            if (skippedCount > 0)
+            {
+                message += $"【注意】assets/<namespace>/lang 以外の非標準パス（{skippedCount}件）はリソースパックで認識されないため除外されました。ログで詳細を確認できます。\n\n";
+            }
+
+            message += "Minecraftの［設定］→［リソースパック］で有効化してください。";
+
+            MessageBox.Show(message, "リソースパック出力完了", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (OperationCanceledException)
         {
@@ -819,6 +871,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             LangFallbackSourceName = settings.LangFallbackSourceName;
             LangFallbackTargetName = settings.LangFallbackTargetName;
 
+            var savedFmt = settings.ResourcePackFormat;
+            SelectedPackFormat = AvailablePackFormats.FirstOrDefault(o => o.Format == savedFmt)
+                ?? AvailablePackFormats.First(o => o.Format == 15);
+
             if (invalidSavedTarget)
             {
                 StatusBarText = $"保存済みの親フォルダが見つかりません。再選択してください: {savedTarget}";
@@ -861,7 +917,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             CancelGranularity = CancelGranularity,
             LangFallbackEnabled = LangFallbackEnabled,
             LangFallbackSourceName = LangFallbackSourceName,
-            LangFallbackTargetName = LangFallbackTargetName
+            LangFallbackTargetName = LangFallbackTargetName,
+            ResourcePackFormat = SelectedPackFormat.Format
         };
     }
 
