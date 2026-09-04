@@ -5,6 +5,7 @@ namespace ModLangOrganizer.Domain;
 /// <summary>再帰JAR探索とlang入出力のパス方針。</summary>
 public static class JarPathPolicy
 {
+    // 旧既定出力フォルダ名。既存環境の生成物を再帰JAR探索から除外するため保持する。
     public const string DefaultOutputFolderName = "_lang_output";
 
     private static readonly HashSet<string> ExcludedDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
@@ -13,13 +14,13 @@ public static class JarPathPolicy
         DefaultOutputFolderName
     };
 
-    /// <summary>親フォルダ配下の既定lang入出力ルート。</summary>
+    /// <summary>「親フォルダと同じ場所」を選んだ場合のlang入出力ルート。</summary>
     public static string GetDefaultOutputRoot(string targetRoot)
     {
         if (string.IsNullOrWhiteSpace(targetRoot))
             return string.Empty;
 
-        return Path.Combine(Path.GetFullPath(targetRoot), DefaultOutputFolderName);
+        return Path.GetFullPath(targetRoot);
     }
 
     /// <summary>対象ルートからJARまでの安全な相対パスを取得する。</summary>
