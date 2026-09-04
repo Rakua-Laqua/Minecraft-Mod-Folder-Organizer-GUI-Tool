@@ -98,25 +98,20 @@ public sealed class FileSystemService
         };
     }
 
-    /// <summary>ディレクトリ配下のファイルを再帰的に列挙（リンク先非追従）</summary>
+    /// <summary>
+    /// ディレクトリ直下のファイルを列挙（リンク非追従）。
+    /// langファイルは仕様上lang直下のみを対象とし、lang/langのようなネストを再帰コピーしない。
+    /// </summary>
     public IEnumerable<string> EnumerateFilesNoFollow(string dir, string pattern = "*")
     {
         if (!Directory.Exists(dir)) yield break;
         if (IsReparsePoint(dir)) yield break;
 
         var dirInfo = new DirectoryInfo(dir);
-
         foreach (var file in dirInfo.EnumerateFiles(pattern, SearchOption.TopDirectoryOnly))
         {
             if (IsReparsePoint(file.FullName)) continue;
             yield return file.FullName;
-        }
-
-        foreach (var sub in dirInfo.EnumerateDirectories("*", SearchOption.TopDirectoryOnly))
-        {
-            if (IsReparsePoint(sub.FullName)) continue;
-            foreach (var file in EnumerateFilesNoFollow(sub.FullName, pattern))
-                yield return file;
         }
     }
 

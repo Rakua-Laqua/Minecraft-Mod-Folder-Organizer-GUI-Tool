@@ -8,7 +8,7 @@ public sealed class JarScanResult
     public JarIntegrity Integrity { get; set; } = JarIntegrity.Unknown;
     public ProcessingStrategy Strategy { get; set; } = ProcessingStrategy.NoLang;
 
-    /// <summary>検出されたlang候補 (assets/modid/lang)</summary>
+    /// <summary>検出されたlang候補</summary>
     public List<LangCandidate> LangCandidates { get; set; } = [];
 
     /// <summary>予定操作</summary>
@@ -26,13 +26,16 @@ public sealed class JarScanResult
 /// <summary>lang候補情報</summary>
 public sealed class LangCandidate
 {
-    /// <summary>modid (assets直下のフォルダ名)</summary>
+    /// <summary>
+    /// 外部出力時の候補識別キー。
+    /// assets/&lt;modid&gt;/lang の場合はmodid、assets外ではlangルートから生成した一意キー。
+    /// </summary>
     public required string ModId { get; init; }
 
-    /// <summary>アーカイブ内のlangフォルダパス</summary>
+    /// <summary>アーカイブ内のlangフォルダパス（例: assets/modid/lang, lang）</summary>
     public required string ArchiveLangPath { get; init; }
 
-    /// <summary>lang配下のファイル一覧（相対パス）</summary>
+    /// <summary>lang直下の翻訳ファイル一覧（相対パス）</summary>
     public List<string> Files { get; set; } = [];
 }
 
