@@ -44,10 +44,9 @@ public static class LangPathResolver
 
     /// <summary>
     /// 外部編集用ディレクトリを決定する。
-    /// 1. 既存の mapping に該当エントリがあればその親ディレクトリ（過去の抽出パス）を維持
-    /// 2. 既存のディスク上に旧形式フォルダ（<outputRoot>/<jarRootName>...）が存在すれば互換性のためそれを維持
-    /// 3. 新規抽出の場合は、基本形 `<outputRoot>/<modId>` とする
-    /// 4. 同じ ModId を持つ候補が他のJARにも存在する場合は、衝突回避のため `<outputRoot>/<modId>__<jarRootName>` とする
+    /// JARの相対カテゴリ構造を維持し、JAR名（拡張子なし）のフォルダへlangファイルを配置する。
+    /// 単一lang候補はJARフォルダ直下、複数lang候補は衝突回避のためその下にModIdフォルダを作る。
+    /// mapping はJAR反映時の対応情報としてのみ使用し、抽出先の物理配置は変更しない。
     /// </summary>
     public static string ResolveEditDirectory(
         string outputRoot,
@@ -56,68 +55,15 @@ public static class LangPathResolver
         WorkspaceMapping? existingMapping = null,
         IReadOnlyList<JarScanResult>? allScans = null)
     {
-        if (string.IsNullOrWhiteSpace(outputRoot))
-            throw new ArgumentException("出力ルートが指定されていません。", nameof(outputRoot));
+        // 既存呼び出しとの互換性のため引数は維持する。
+        // 出力先は常にJAR基準で決定し、過去のmodId直下mappingには追従しない。
+        _ = existingMapping;
+        _ = allScans;
 
-        var fullOutputRoot = Path.GetFullPath(outputRoot);
-
-        // 1. 既存 mapping の確認
-        if (existingMapping != null)
-        {
-            var matchedEntry = existingMapping.Entries.FirstOrDefault(e =>
-                e.JarRelativePath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase) &&
-                e.ModId.Equals(candidate.ModId, StringComparison.OrdinalIgnoreCase));
-
-            if (matchedEntry != null && !string.IsNullOrEmpty(matchedEntry.EditPath))
-            {
-                var fullEditPath = Path.Combine(fullOutputRoot, matchedEntry.EditPath.Replace('/', Path.DirectorySeparatorChar));
-                var dirFromMapping = Path.GetDirectoryName(fullEditPath);
-                if (!string.IsNullOrEmpty(dirFromMapping))
-                {
-                    EnsureContained(dirFromMapping, fullOutputRoot);
-                    return dirFromMapping;
-                }
-            }
-        }
-
-        // 2. 旧形式（<outputRoot>/<jarRootName>...）のフォルダが既にディスク上に存在するか確認
-        var legacyDir = GetLegacyExternalLangDirectory(outputRoot, scan, candidate);
-        if (Directory.Exists(legacyDir))
-        {
-            return legacyDir;
-        }
-
-        // 3. 新規抽出: <outputRoot>/<modId>（ModId重複時は衝突回避）
-        var modIdSegment = SanitizeDirectoryName(candidate.ModId);
-        var isDuplicateModId = allScans != null && allScans
-            .Where(s => !s.RelativeJarPath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase))
-            .Any(s => s.LangCandidates.Any(c => c.ModId.Equals(candidate.ModId, StringComparison.OrdinalIgnoreCase)));
-
-        string targetFolderName;
-        if (isDuplicateModId)
-        {
-            var jarRootName = SanitizeDirectoryName(Path.GetFileNameWithoutExtension(scan.JarFileName));
-            targetFolderName = $"{modIdSegment}__{jarRootName}";
-        }
-        else
-        {
-            targetFolderName = modIdSegment;
-        }
-
-        var resultDir = Path.GetFullPath(Path.Combine(fullOutputRoot, targetFolderName));
-        EnsureContained(resultDir, fullOutputRoot);
-        return resultDir;
+        return GetExternalLangDirectory(outputRoot, scan, candidate);
     }
 
     public static string GetExternalLangDirectory(
-        string outputRoot,
-        JarScanResult scan,
-        LangCandidate candidate)
-    {
-        return ResolveEditDirectory(outputRoot, scan, candidate);
-    }
-
-    public static string GetLegacyExternalLangDirectory(
         string outputRoot,
         JarScanResult scan,
         LangCandidate candidate)
@@ -130,6 +76,17 @@ public static class LangPathResolver
         var candidateRoot = Path.GetFullPath(Path.Combine(jarOutputRoot, candidate.ModId));
         EnsureContained(candidateRoot, jarOutputRoot);
         return candidateRoot;
+    }
+
+    /// <summary>
+    /// 旧呼び出し互換用。現在の標準出力形式もJAR単位のため GetExternalLangDirectory と同じ結果を返す。
+    /// </summary>
+    public static string GetLegacyExternalLangDirectory(
+        string outputRoot,
+        JarScanResult scan,
+        LangCandidate candidate)
+    {
+        return GetExternalLangDirectory(outputRoot, scan, candidate);
     }
 
     public static string GetDisplayPath(JarScanResult scan, LangCandidate candidate)
