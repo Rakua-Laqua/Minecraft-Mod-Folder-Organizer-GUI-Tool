@@ -63,31 +63,11 @@ public static class LangPathResolver
 
         var fullOutputRoot = Path.GetFullPath(outputRoot);
 
-        // 1. 既存 mapping の確認（明示的なEditPathがあれば尊重しつつ排他所有権を検証）
-        if (existingMapping != null)
-        {
-            var matchedEntry = existingMapping.Entries.FirstOrDefault(e =>
-                e.JarRelativePath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase) &&
-                e.ModId.Equals(candidate.ModId, StringComparison.OrdinalIgnoreCase));
-
-            if (matchedEntry != null && !string.IsNullOrEmpty(matchedEntry.EditPath))
-            {
-                var fullEditPath = Path.Combine(fullOutputRoot, matchedEntry.EditPath.Replace('/', Path.DirectorySeparatorChar));
-                var dirFromMapping = Path.GetDirectoryName(fullEditPath);
-                if (!string.IsNullOrEmpty(dirFromMapping))
-                {
-                    EnsureContained(dirFromMapping, fullOutputRoot);
-                    EnsureExclusiveEditDirectoryOwnership(
-                        dirFromMapping, fullOutputRoot, scan, candidate, existingMapping);
-                    return dirFromMapping;
-                }
-            }
-        }
-
-        // 2. 基本出力先（JAR相対カテゴリ + JAR名フォルダ [+ 複数候補時ModId]）
+        // 1. 基本出力先（JAR相対カテゴリ + JAR名フォルダ [+ 複数候補時ModId]）
+        // 過去のmappingのEditPathに引きずられず、物理配置は常にJAR単位とする。
         var baseDir = GetExternalLangDirectory(outputRoot, scan, candidate);
 
-        // 3. allScans内での出力先衝突判定（サニタイズや同名などで他JARと同一ディレクトリになる場合、ハッシュトークンで一意化）
+        // 2. allScans内での出力先衝突判定（サニタイズや同名などで他JARと同一ディレクトリになる場合、ハッシュトークンで一意化）
         string targetDir;
         var hasCollision = allScans != null && allScans
             .Where(s => !ReferenceEquals(s, scan))
@@ -99,7 +79,7 @@ public static class LangPathResolver
 
         if (hasCollision)
         {
-            var token = GetRelativeJarPathToken(scan.RelativeJarPath);
+            var token = GetRelativeJarPathToken(scan);
             targetDir = $"{baseDir}__{token}";
             EnsureContained(targetDir, fullOutputRoot);
         }
@@ -108,7 +88,7 @@ public static class LangPathResolver
             targetDir = baseDir;
         }
 
-        // 4. 排他所有権チェック（mapping上の他JAR所有ディレクトリへの書き込み防止）
+        // 3. 排他所有権チェック（mapping上の他JAR所有ディレクトリへの書き込み防止）
         EnsureExclusiveEditDirectoryOwnership(
             targetDir, fullOutputRoot, scan, candidate, existingMapping);
 
@@ -186,10 +166,12 @@ public static class LangPathResolver
         return string.Join('/', segments);
     }
 
-    private static string GetRelativeJarPathToken(string relativeJarPath)
+    private static string GetRelativeJarPathToken(JarScanResult scan)
     {
-        var normalized = (relativeJarPath ?? string.Empty).Replace('\\', '/').ToLowerInvariant();
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        var relative = (scan.RelativeJarPath ?? string.Empty).Replace('\\', '/').ToLowerInvariant();
+        var fullPath = (scan.JarFilePath ?? string.Empty).Replace('\\', '/').ToLowerInvariant();
+        var key = $"{relative}|{fullPath}";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
         return Convert.ToHexString(hash).ToLowerInvariant()[..16];
     }
 

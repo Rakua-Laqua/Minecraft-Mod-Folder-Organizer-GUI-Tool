@@ -26,6 +26,7 @@ internal static class Program
         failed += Run("R2.FallbackOverwriteApiKept", TestR2FallbackOverwriteApiKept);
         failed += Run("R3.SameNameCollisionAndSubsetContext", TestR3SameNameCollisionAndSubsetContext);
         failed += Run("R3.MappingLegacyKeepAndOwnershipRefuse", TestR3MappingLegacyKeepAndOwnershipRefuse);
+        failed += Run("R3.LegacyMappingMigration", TestR3LegacyMappingMigration);
         failed += Run("R3.RegisterMappingRefuseRetarget", TestR3RegisterMappingRefuseRetarget);
         failed += Run("R4.BackupZipRootsAndContents", TestR4BackupZipRootsAndContents);
         failed += Run("R5.DangerousPathsAndResourcePack", TestR5DangerousPathsAndResourcePack);
@@ -232,9 +233,12 @@ internal static class Program
         var collisionList = new List<JarScanResult> { scanCollidingA, scanCollidingB };
 
         var dirColA = LangPathResolver.ResolveEditDirectory(temp.Path, scanCollidingA, cand, null, collisionList);
+        var dirColB = LangPathResolver.ResolveEditDirectory(temp.Path, scanCollidingB, cand, null, collisionList);
         var dirSubsetNoCollision = LangPathResolver.ResolveEditDirectory(temp.Path, scanCollidingA, cand, null, [scanCollidingA]);
 
-        Expect(dirColA.Contains("__"), "colliding jar path uses hash discriminator");
+        Expect(dirColA.Contains("__"), "colliding jar A path uses hash discriminator");
+        Expect(dirColB.Contains("__"), "colliding jar B path uses hash discriminator");
+        Expect(!dirColA.Equals(dirColB, StringComparison.OrdinalIgnoreCase), "colliding scans get distinct unique output paths");
         Expect(!dirSubsetNoCollision.Contains("__"), "subset-only context without collision keeps clean jar path");
         Expect(!dirColA.Equals(dirSubsetNoCollision, StringComparison.OrdinalIgnoreCase),
             "full scan context must be passed for stable collision results");
@@ -243,29 +247,24 @@ internal static class Program
     private static void TestR3MappingLegacyKeepAndOwnershipRefuse()
     {
         using var temp = new TempDir();
-        var cand = new LangCandidate { ModId = "mymod", ArchiveLangPath = "assets/mymod/lang", Files = ["en_us.json"] };
-        var scanA = CreateScan("a/same.jar", "mymod");
-        var scanB = CreateScan("b/same.jar", "mymod");
-        var all = new List<JarScanResult> { scanA, scanB };
+        var cand = new LangCandidate { ModId = "geckolib", ArchiveLangPath = "assets/geckolib/lang", Files = ["en_us.json"] };
+        var scanA = CreateScan("04_lib/geckolib.jar", "geckolib");
+        var all = new List<JarScanResult> { scanA };
 
+        // 過去のmappingにルート直下 "geckolib/en_us.json" があっても、ResolveEditDirectoryはmappingに引きずられず正規JAR単位パスを返す
         var mapping = new WorkspaceMapping();
         mapping.Entries.Add(new TranslationMappingEntry
         {
-            EditPath = "kept_custom/en_us.json",
+            EditPath = "geckolib/en_us.json",
             JarRelativePath = scanA.RelativeJarPath,
-            ModId = "mymod",
-            ArchivePath = "assets/mymod/lang/en_us.json"
+            ModId = "geckolib",
+            ArchivePath = "assets/geckolib/lang/en_us.json"
         });
-        var mapped = LangPathResolver.ResolveEditDirectory(temp.Path, scanA, cand, mapping, all);
-        Expect(Path.GetFileName(mapped) == "kept_custom", "unique mapping edit path is kept");
+        var resolved = LangPathResolver.ResolveEditDirectory(temp.Path, scanA, cand, mapping, all);
+        Expect(resolved.Replace('\\', '/').EndsWith("/04_lib/geckolib", StringComparison.OrdinalIgnoreCase),
+            "ResolveEditDirectory ignores legacy mapping edit path and strictly adheres to jar rule");
 
-        var legacy = LangPathResolver.GetLegacyExternalLangDirectory(temp.Path, scanB, cand);
-        Directory.CreateDirectory(legacy);
-        File.WriteAllText(Path.Combine(legacy, "en_us.json"), "LEGACY");
-        var legacyResolved = LangPathResolver.ResolveEditDirectory(temp.Path, scanB, cand, null, all);
-        Expect(Path.GetFullPath(legacyResolved) == Path.GetFullPath(legacy), "unique legacy path is kept");
-        Expect(File.ReadAllText(Path.Combine(legacy, "en_us.json")) == "LEGACY", "legacy files remain");
-
+        // 他JARの所有ディレクトリに対する書き込み拒否（排他保護）
         var owned = Path.Combine(temp.Path, "other", "same");
         Directory.CreateDirectory(owned);
         var ownedFile = Path.Combine(owned, "en_us.json");
@@ -286,6 +285,162 @@ internal static class Program
         Expect(ownerMapping.Entries.Count == 1, "mapping not repaired");
         Expect(ownerMapping.Entries[0].JarRelativePath == mappingJson, "owner mapping remains");
         Expect(File.ReadAllText(ownedFile) == "KEEP", "owned translation remains");
+    }
+
+    private static void TestR3LegacyMappingMigration()
+    {
+        using var temp = new TempDir();
+        var outputRoot = temp.CreateSub("out");
+        var targetDir = temp.CreateSub("mods");
+
+        var executor = new Executor(new Logger());
+        var options = new Options
+        {
+            LangFallbackEnabled = true,
+            LangFallbackSourceName = "en_us",
+            LangFallbackTargetName = "ja_jp"
+        };
+
+        // 1. ダミーJARの作成（04_lib/geckolib-4.8.4.jar に en_us.json と ja_jp.json: {"key1":"ja_mod","key2":"ja_new"} を格納）
+        var jarRelative = Path.Combine("04_lib", "geckolib-4.8.4.jar");
+        var jarFullPath = Path.Combine(targetDir, jarRelative);
+        Directory.CreateDirectory(Path.GetDirectoryName(jarFullPath)!);
+
+        using (var zip = ZipFile.Open(jarFullPath, ZipArchiveMode.Create))
+        {
+            var entryEn = zip.CreateEntry("assets/geckolib/lang/en_us.json");
+            using (var writer = new StreamWriter(entryEn.Open(), Encoding.UTF8))
+                writer.Write("{\"key1\":\"en1\",\"key2\":\"en2\"}");
+
+            var entryJa = zip.CreateEntry("assets/geckolib/lang/ja_jp.json");
+            using (var writer = new StreamWriter(entryJa.Open(), Encoding.UTF8))
+                writer.Write("{\"key1\":\"ja_mod\",\"key2\":\"ja_new\"}");
+        }
+
+        var cand = new LangCandidate
+        {
+            ModId = "geckolib",
+            ArchiveLangPath = "assets/geckolib/lang",
+            Files = ["en_us.json", "ja_jp.json"]
+        };
+        var scan = new JarScanResult
+        {
+            JarFileName = "geckolib-4.8.4.jar",
+            JarFilePath = jarFullPath,
+            RelativeJarPath = jarRelative,
+            Integrity = JarIntegrity.OK,
+            Strategy = ProcessingStrategy.LangFound,
+            LangCandidates = [cand]
+        };
+
+        // 2. 旧ルート直下フォルダ (geckolib) に既存翻訳 ja_jp.json: {"key1":"ja_old"} が存在し、
+        // mapping に EditPath = "geckolib/ja_jp.json" が登録されている状態
+        var legacyDir = Path.Combine(outputRoot, "geckolib");
+        Directory.CreateDirectory(legacyDir);
+        var legacyJa = Path.Combine(legacyDir, "ja_jp.json");
+        File.WriteAllText(legacyJa, "{\"key1\":\"ja_old\"}", Encoding.UTF8);
+
+        var mapping = new WorkspaceMapping();
+        mapping.Entries.Add(new TranslationMappingEntry
+        {
+            EditPath = "geckolib/ja_jp.json",
+            JarRelativePath = jarRelative,
+            ModId = "geckolib",
+            ArchivePath = "assets/geckolib/lang/ja_jp.json"
+        });
+
+        // 3. Executor.ExecuteAsync の実行
+        var progress = new Progress<ExecutionProgress>();
+        Await(executor.ExecuteAsync([scan], outputRoot, options, progress, CancellationToken.None, mapping, [scan]));
+
+        // 4. 検証 a: 新しいJAR単位フォルダに ja_jp.json が作成され、旧翻訳が保持され新規キーが追加されていること
+        var expectedNewDir = Path.Combine(outputRoot, "04_lib", "geckolib-4.8.4");
+        var newJa = Path.Combine(expectedNewDir, "ja_jp.json");
+        Expect(File.Exists(newJa), "new ja_jp.json created in jar directory");
+
+        var newJaContent = File.ReadAllText(newJa, Encoding.UTF8);
+        Expect(newJaContent.Contains("\"key1\":\"ja_old\""), "legacy translation value preserved in new location");
+        Expect(newJaContent.Contains("\"key2\":\"ja_new\""), "new key merged from source");
+
+        // 5. 検証 b: 旧ファイルの内容が変更されず残っていること
+        Expect(File.Exists(legacyJa), "legacy ja_jp.json file is not deleted");
+        Expect(File.ReadAllText(legacyJa, Encoding.UTF8) == "{\"key1\":\"ja_old\"}", "legacy file content untouched");
+
+        // 6. 検証 c: mapping の EditPath が新配置へ更新されていること
+        var updatedEntry = mapping.Entries.FirstOrDefault(e => e.ArchivePath == "assets/geckolib/lang/ja_jp.json");
+        Expect(updatedEntry != null, "mapping entry remains");
+        Expect(updatedEntry!.EditPath.Replace('\\', '/').Equals("04_lib/geckolib-4.8.4/ja_jp.json", StringComparison.OrdinalIgnoreCase),
+            "mapping EditPath updated to new jar path: " + updatedEntry.EditPath);
+
+        // 7. 検証 d: 新配置に既にファイルがある場合、旧ファイルで上書きしないこと
+        var secondLegacyDir = Path.Combine(outputRoot, "legacy_override");
+        Directory.CreateDirectory(secondLegacyDir);
+        var secondLegacyFile = Path.Combine(secondLegacyDir, "ja_jp.json");
+        File.WriteAllText(secondLegacyFile, "{\"key1\":\"should_not_overwrite\"}", Encoding.UTF8);
+
+        var secondMapping = new WorkspaceMapping();
+        secondMapping.Entries.Add(new TranslationMappingEntry
+        {
+            EditPath = "legacy_override/ja_jp.json",
+            JarRelativePath = jarRelative,
+            ModId = "geckolib",
+            ArchivePath = "assets/geckolib/lang/ja_jp.json"
+        });
+
+        InvokeInstance(executor, "MigrateLegacyMappingEntries",
+            secondMapping, outputRoot, scan, cand, expectedNewDir);
+
+        Expect(File.ReadAllText(newJa, Encoding.UTF8) == newJaContent, "existing new location file was not overwritten");
+        Expect(secondMapping.Entries[0].EditPath.Replace('\\', '/').Equals("04_lib/geckolib-4.8.4/ja_jp.json", StringComparison.OrdinalIgnoreCase),
+            "mapping safely updated to point to existing new file");
+
+        // 8. 検証 e: JARに ja_jp がなく fallback 由来の旧 ja_jp だけ存在する場合でも安全に引き継がれ mapping されること
+        var fallbackJarRelative = Path.Combine("04_lib", "only_en.jar");
+        var fallbackJarFullPath = Path.Combine(targetDir, fallbackJarRelative);
+        using (var zip = ZipFile.Open(fallbackJarFullPath, ZipArchiveMode.Create))
+        {
+            var entryEn = zip.CreateEntry("assets/only_en/lang/en_us.json");
+            using var writer = new StreamWriter(entryEn.Open(), Encoding.UTF8);
+            writer.Write("{\"fallback_key\":\"en_val\"}");
+        }
+        var fallbackCand = new LangCandidate
+        {
+            ModId = "only_en",
+            ArchiveLangPath = "assets/only_en/lang",
+            Files = ["en_us.json"]
+        };
+        var fallbackScan = new JarScanResult
+        {
+            JarFileName = "only_en.jar",
+            JarFilePath = fallbackJarFullPath,
+            RelativeJarPath = fallbackJarRelative,
+            Integrity = JarIntegrity.OK,
+            Strategy = ProcessingStrategy.LangFound,
+            LangCandidates = [fallbackCand]
+        };
+        var fallbackLegacyDir = Path.Combine(outputRoot, "only_en");
+        Directory.CreateDirectory(fallbackLegacyDir);
+        var fallbackLegacyJa = Path.Combine(fallbackLegacyDir, "ja_jp.json");
+        File.WriteAllText(fallbackLegacyJa, "{\"fallback_key\":\"my_manual_ja\"}", Encoding.UTF8);
+
+        var fallbackMapping = new WorkspaceMapping();
+        fallbackMapping.Entries.Add(new TranslationMappingEntry
+        {
+            EditPath = "only_en/ja_jp.json",
+            JarRelativePath = fallbackJarRelative,
+            ModId = "only_en",
+            ArchivePath = "assets/only_en/lang/ja_jp.json"
+        });
+
+        Await(executor.ExecuteAsync([fallbackScan], outputRoot, options, progress, CancellationToken.None, fallbackMapping, [fallbackScan]));
+
+        var expectedFallbackNewDir = Path.Combine(outputRoot, "04_lib", "only_en");
+        var newFallbackJa = Path.Combine(expectedFallbackNewDir, "ja_jp.json");
+        Expect(File.Exists(newFallbackJa), "fallback ja_jp.json migrated to new jar directory");
+        Expect(File.ReadAllText(newFallbackJa, Encoding.UTF8).Contains("\"fallback_key\":\"my_manual_ja\""),
+            "manual translation kept without being overwritten by en fallback");
+        Expect(fallbackMapping.Entries[0].EditPath.Replace('\\', '/').Equals("04_lib/only_en/ja_jp.json", StringComparison.OrdinalIgnoreCase),
+            "fallback mapping updated to new location");
     }
 
     private static void TestR3RegisterMappingRefuseRetarget()
