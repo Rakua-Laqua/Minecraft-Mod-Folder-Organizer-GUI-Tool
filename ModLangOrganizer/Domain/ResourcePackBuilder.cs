@@ -23,16 +23,76 @@ public sealed class ResourcePackBuilder
 {
     /// <summary>
     /// Minecraft標準のリソースパック構造 (assets/<namespace>/lang/...) に準拠しているかを判定する。
+    /// すべてのパスセグメントを検証し、危険な相対・絶対・ADS・バックスラッシュは拒否する。
     /// </summary>
     public static bool IsStandardLangPath(string archivePath)
     {
-        var normalized = archivePath.Replace('\\', '/').TrimStart('/');
-        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        // assets/<namespace>/lang/... (最低4要素: assets, namespace, lang, filename)
+        if (!TryGetSafeArchiveSegments(archivePath, out var parts))
+            return false;
+
         return parts.Length >= 4
             && parts[0].Equals("assets", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(parts[1])
             && parts[2].Equals("lang", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetSafeArchiveSegments(string archivePath, out string[] parts)
+    {
+        parts = [];
+        if (string.IsNullOrWhiteSpace(archivePath))
+            return false;
+
+        if (archivePath.Contains('\\') ||
+            archivePath.Contains(':') ||
+            archivePath.Contains('\0') ||
+            archivePath.StartsWith('/') ||
+            Path.IsPathRooted(archivePath))
+        {
+            return false;
+        }
+
+        parts = archivePath.Split('/', StringSplitOptions.None);
+        if (parts.Length == 0)
+            return false;
+
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrWhiteSpace(part) || part is "." or "..")
+                return false;
+            if (part.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryGetPathUnderWorkRoot(string workRoot, string archivePath, out string fullTargetPath)
+    {
+        fullTargetPath = string.Empty;
+        if (!TryGetSafeArchiveSegments(archivePath, out var parts))
+            return false;
+
+        var combined = workRoot;
+        foreach (var part in parts)
+            combined = Path.Combine(combined, part);
+
+        var fullTarget = Path.GetFullPath(combined);
+        var fullRoot = Path.GetFullPath(workRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var trimmedTarget = fullTarget.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (trimmedTarget.Equals(fullRoot, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (!trimmedTarget.StartsWith(
+                fullRoot + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        fullTargetPath = fullTarget;
+        return true;
     }
 
     /// <summary>
@@ -80,15 +140,12 @@ public sealed class ResourcePackBuilder
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    if (!IsStandardLangPath(file.ArchivePath))
+                    if (!IsStandardLangPath(file.ArchivePath) ||
+                        !TryGetPathUnderWorkRoot(tempDirectory, file.ArchivePath, out var targetPath))
                     {
                         skippedNonStandard.Add(file.ArchivePath);
                         continue;
                     }
-
-                    var targetPath = Path.Combine(
-                        tempDirectory,
-                        file.ArchivePath.Replace('/', Path.DirectorySeparatorChar));
 
                     var targetParent = Path.GetDirectoryName(targetPath);
                     if (!string.IsNullOrEmpty(targetParent))
@@ -213,7 +270,8 @@ public sealed class ResourcePackBuilder
                     {
                         ct.ThrowIfCancellationRequested();
 
-                        if (!IsStandardLangPath(file.ArchivePath))
+                        if (!IsStandardLangPath(file.ArchivePath) ||
+                            !TryGetSafeArchiveSegments(file.ArchivePath, out _))
                         {
                             skippedNonStandard.Add(file.ArchivePath);
                             continue;

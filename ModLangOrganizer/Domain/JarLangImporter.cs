@@ -85,8 +85,14 @@ public sealed class JarLangImporter
                 continue;
             }
 
-            // 4. ArchivePath の厳格検証（対象JARで検出済みの LangCandidate かつ ModId が一致し、その ArchiveLangPath 配下に収まっているか）
-            var normalizedArchivePath = entry.ArchivePath.TrimStart('/').Replace('\\', '/');
+            // 4. ArchivePath の危険パス拒否（相対 .. / . 、絶対、ドライブ/ADS、バックスラッシュ）
+            if (!TryGetSafeArchivePath(entry.ArchivePath, out var normalizedArchivePath))
+            {
+                _logger.Warn($"マッピングのArchivePathが不正または危険なため除外: {entry.ArchivePath}");
+                continue;
+            }
+
+            // 5. ArchivePath の厳格検証（対象JARで検出済みの LangCandidate かつ ModId が一致し、その ArchiveLangPath 配下に収まっているか）
             var isValidArchiveLang = scan.LangCandidates.Any(candidate =>
             {
                 if (!string.IsNullOrWhiteSpace(entry.ModId) &&
@@ -105,7 +111,7 @@ public sealed class JarLangImporter
                 continue;
             }
 
-            // 5. 反映リストに追加（重複排除）
+            // 6. 反映リストに追加（重複排除）
             if (!jarPlan.Files.Any(f => f.ArchivePath.Equals(normalizedArchivePath, StringComparison.OrdinalIgnoreCase)))
             {
                 jarPlan.Files.Add(new JarImportFile(fullSourcePath, normalizedArchivePath));
@@ -275,6 +281,37 @@ public sealed class JarLangImporter
             _logger.Info($"競合コピーをJAR反映から除外: {scan.JarFileName} ({plan.IgnoredConflictFiles.Count}ファイル)");
 
         _logger.Info($"JAR反映スキップ: {scan.JarFileName} (反映するファイルなし)");
+    }
+
+    private static bool TryGetSafeArchivePath(string archivePath, out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(archivePath))
+            return false;
+
+        if (archivePath.Contains('\\') ||
+            archivePath.Contains(':') ||
+            archivePath.Contains('\0') ||
+            archivePath.StartsWith('/') ||
+            Path.IsPathRooted(archivePath))
+        {
+            return false;
+        }
+
+        var parts = archivePath.Split('/', StringSplitOptions.None);
+        if (parts.Length == 0)
+            return false;
+
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrWhiteSpace(part) || part is "." or "..")
+                return false;
+            if (part.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                return false;
+        }
+
+        normalized = string.Join('/', parts);
+        return true;
     }
 
     private static bool IsConflictCopy(string path)

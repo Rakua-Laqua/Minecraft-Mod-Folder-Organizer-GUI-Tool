@@ -31,10 +31,9 @@ public sealed class LangFileMerger
         }
         catch (Exception ex) when (ex is JsonException or DecoderFallbackException or InvalidDataException or OverflowException)
         {
-            // 既存ファイルが壊れている等でキー単位マージができない場合でも、
-            // JAR側を正として有効な抽出結果へ戻す。
-            OverwriteFromJar(sourcePath, destinationPath);
-            return LangFileMergeResult.FallbackOverwrite(ex.Message);
+            throw new InvalidDataException(
+                $"翻訳ファイルをマージできないため既存ファイルを保持します: {ex.Message}",
+                ex);
         }
     }
 
@@ -95,6 +94,10 @@ public sealed class LangFileMerger
 
         var sourcePayload = GetUtf8Payload(sourceBytes, out var sourceHasBom);
         var existingPayload = GetUtf8Payload(existingBytes, out _);
+
+        // 不正なUTF-8バイト列による不正ファイル生成・破壊を防止
+        StrictUtf8.GetString(sourcePayload);
+        StrictUtf8.GetString(existingPayload);
 
         var existingValues = ReadTopLevelJsonValues(existingPayload, out var existingKeys);
         var replacements = BuildJsonReplacements(

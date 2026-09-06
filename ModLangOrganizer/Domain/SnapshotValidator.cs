@@ -14,20 +14,23 @@ public sealed class SnapshotValidator
     public List<string> Validate(IEnumerable<JarScanResult> scanResults)
     {
         var staleJars = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var result in scanResults)
         {
             if (result.Snapshot == null) continue;
+            var relativePath = result.RelativeJarPath.Replace('\\', '/');
             if (!File.Exists(result.JarFilePath))
             {
-                staleJars.Add(result.RelativeJarPath.Replace('\\', '/'));
+                if (seen.Add(relativePath))
+                    staleJars.Add(relativePath);
                 continue;
             }
 
             var current = _fs.BuildSnapshot(result.JarFilePath);
-            if (!result.Snapshot.Matches(current))
+            if (!result.Snapshot.Matches(current) && seen.Add(relativePath))
             {
-                staleJars.Add(result.RelativeJarPath.Replace('\\', '/'));
+                staleJars.Add(relativePath);
             }
         }
 

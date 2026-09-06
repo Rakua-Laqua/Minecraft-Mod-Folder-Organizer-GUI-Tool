@@ -25,10 +25,12 @@ public sealed class Executor
         Models.Options options,
         IProgress<ExecutionProgress> progress,
         CancellationToken ct,
-        WorkspaceMapping? mapping = null)
+        WorkspaceMapping? mapping = null,
+        IReadOnlyList<JarScanResult>? allScans = null)
     {
         var result = new ExecutionResult();
         int total = scanResults.Count;
+        var collisionScans = allScans ?? scanResults;
 
         for (int index = 0; index < scanResults.Count; index++)
         {
@@ -77,7 +79,7 @@ public sealed class Executor
 
                     var archiveLangPath = candidate.ArchiveLangPath.Replace('/', Path.DirectorySeparatorChar);
                     var srcLang = Path.Combine(workDir, archiveLangPath);
-                    var outLang = LangPathResolver.ResolveEditDirectory(outputRoot, scan, candidate, mapping, scanResults);
+                    var outLang = LangPathResolver.ResolveEditDirectory(outputRoot, scan, candidate, mapping, collisionScans);
                     var logLangPath = LangPathResolver.GetDisplayPath(scan, candidate);
 
                     if (!Directory.Exists(srcLang))
@@ -292,19 +294,68 @@ public sealed class Executor
     /// <summary>Create zip backup before execution.</summary>
     public async Task CreateBackupAsync(string targetDir, CancellationToken ct)
     {
-        var parentDir = Path.GetDirectoryName(targetDir) ?? targetDir;
-        var dirName = Path.GetFileName(targetDir);
+        var normalized = Path.GetFullPath(targetDir)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var parentDir = Path.GetDirectoryName(normalized) ?? normalized;
+        var dirName = Path.GetFileName(normalized);
+        if (string.IsNullOrWhiteSpace(dirName))
+            dirName = "backup";
+
         var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var zipPath = Path.Combine(parentDir, $"{dirName}_backup_{timestamp}.zip");
+        var unique = Guid.NewGuid().ToString("N");
+        var zipName = $"{dirName}_backup_{timestamp}_{unique}.zip";
+        var zipPath = Path.Combine(parentDir, zipName);
+
+        if (JarPathPolicy.IsSameOrUnder(zipPath, normalized))
+            zipPath = Path.Combine(Path.GetTempPath(), zipName);
 
         _logger.Info($"バックアップ作成開始: {zipPath}");
 
         await Task.Run(() =>
         {
-            ZipFile.CreateFromDirectory(targetDir, zipPath);
+            ZipFile.CreateFromDirectory(normalized, zipPath);
         }, ct);
 
         _logger.Info($"バックアップ完了: {zipPath}");
+    }
+
+    /// <summary>
+    /// 抽出前に TargetDir と存在する OutputRoot を包含関係に応じてバックアップする。
+    /// すべての必要バックアップが完了してから戻る。
+    /// </summary>
+    public async Task CreateExtractionBackupAsync(string targetDir, string outputRoot, CancellationToken ct)
+    {
+        foreach (var root in ResolveExtractionBackupRoots(targetDir, outputRoot))
+            await CreateBackupAsync(root, ct);
+    }
+
+    private static List<string> ResolveExtractionBackupRoots(string targetDir, string outputRoot)
+    {
+        string? NormalizeExisting(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+                return null;
+
+            return Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        var target = NormalizeExisting(targetDir);
+        var output = NormalizeExisting(outputRoot);
+
+        if (target is null && output is null)
+            return [];
+        if (target is null)
+            return [output!];
+        if (output is null)
+            return [target];
+
+        if (JarPathPolicy.IsSameOrUnder(output, target))
+            return [target];
+        if (JarPathPolicy.IsSameOrUnder(target, output))
+            return [output];
+
+        return [target, output];
     }
 
     /// <summary>
@@ -379,10 +430,23 @@ public sealed class Executor
         string archivePath)
     {
         var editRelativePath = Path.GetRelativePath(outputRoot, fullFilePath).Replace('\\', '/');
-        var existing = mapping.Entries.FirstOrDefault(e =>
-            e.EditPath.Equals(editRelativePath, StringComparison.OrdinalIgnoreCase) ||
-            (e.JarRelativePath.Equals(jarRelativePath, StringComparison.OrdinalIgnoreCase) &&
-             e.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase)));
+        var byEditPath = mapping.Entries.FirstOrDefault(e =>
+            e.EditPath.Equals(editRelativePath, StringComparison.OrdinalIgnoreCase));
+
+        if (byEditPath != null)
+        {
+            var sameJar = byEditPath.JarRelativePath.Equals(jarRelativePath, StringComparison.OrdinalIgnoreCase);
+            var sameArchive = byEditPath.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase);
+            if (!sameJar || !sameArchive)
+            {
+                throw new InvalidDataException(
+                    $"mappingのEditPathは別のJAR/アーカイブに割り当て済みのため付け替えできません: {editRelativePath}");
+            }
+        }
+
+        var existing = byEditPath ?? mapping.Entries.FirstOrDefault(e =>
+            e.JarRelativePath.Equals(jarRelativePath, StringComparison.OrdinalIgnoreCase) &&
+            e.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase));
 
         if (existing != null)
         {

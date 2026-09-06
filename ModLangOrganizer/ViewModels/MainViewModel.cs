@@ -79,6 +79,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // スキャン結果保持
     private List<JarScanResult> _scanResults = [];
 
+    // 実行開始時に固定した subset index -> Mods 行。検索非表示は選択解除ではない。
+    private List<int> _executionSubsetToModsIndex = [];
+
     public MainViewModel()
     {
         _mappingUpdater = new TranslationMappingUpdater(_logger);
@@ -598,10 +601,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_scanResults.Count == 0)
             return;
 
+        if (!TryBeginSelectedExecution(out var selectedScans))
+            return;
+
         if (!EnsureScanSnapshotFresh())
             return;
 
-        var langJars = _scanResults.Where(r => r.Strategy == ProcessingStrategy.LangFound).ToList();
+        var langJars = selectedScans.Where(r => r.Strategy == ProcessingStrategy.LangFound).ToList();
         var outputRoot = ResolveOutputRoot();
         if (MessageBox.Show(
             $"JARからlangファイルを抽出します。\n" +
@@ -637,15 +643,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (BackupZip)
             {
                 StatusBarText = "バックアップ作成中...";
-                await executor.CreateBackupAsync(TargetDir, _cts.Token);
+                await executor.CreateExtractionBackupAsync(TargetDir, outputRoot, _cts.Token);
             }
 
             var progress = new Progress<ExecutionProgress>(UpdateExecutionProgress);
 
             _currentMapping = _mappingStore.Load(TargetDir, outputRoot);
+            var allScans = _scanResults.ToList();
 
             var result = await Task.Run(() =>
-                executor.ExecuteAsync(_scanResults, outputRoot, options, progress, _cts.Token, _currentMapping),
+                executor.ExecuteAsync(selectedScans, outputRoot, options, progress, _cts.Token, _currentMapping, allScans),
                 _cts.Token);
 
             try
@@ -689,6 +696,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             IsExecuting = false;
             ScanCompleted = false; // 実行後は再スキャン前提
+            ClearExecutionSelectionCapture();
             _cts?.Dispose();
             _cts = null;
         }
@@ -699,13 +707,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_scanResults.Count == 0)
             return;
 
+        if (!TryBeginSelectedExecution(out var selectedScans))
+            return;
+
         if (!EnsureScanSnapshotFresh())
             return;
 
         var outputRoot = ResolveOutputRoot();
         _currentMapping = _mappingStore.Load(TargetDir, outputRoot);
         var importer = new JarLangImporter(_logger);
-        var plan = importer.CreatePlan(_scanResults, outputRoot, _currentMapping);
+        var plan = importer.CreatePlan(selectedScans, outputRoot, _currentMapping);
 
         if (plan.SourceFileCount == 0)
         {
@@ -826,6 +837,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         finally
         {
             IsExecuting = false;
+            ClearExecutionSelectionCapture();
             _cts?.Dispose();
             _cts = null;
         }
@@ -834,6 +846,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private async Task ImportAsync()
     {
         if (_scanResults.Count == 0)
+            return;
+
+        if (!TryBeginSelectedExecution(out var selectedScans))
             return;
 
         if (!EnsureScanSnapshotFresh())
@@ -856,7 +871,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         var importer = new JarLangImporter(_logger);
-        var plan = importer.CreatePlan(_scanResults, outputRoot, _currentMapping);
+        var plan = importer.CreatePlan(selectedScans, outputRoot, _currentMapping);
 
         if (plan.SourceFileCount == 0)
         {
@@ -958,6 +973,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             IsExecuting = false;
             ScanCompleted = false;
+            ClearExecutionSelectionCapture();
             _cts?.Dispose();
             _cts = null;
         }
@@ -998,6 +1014,55 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return false;
     }
 
+    private bool TryBeginSelectedExecution(out List<JarScanResult> selectedScans)
+    {
+        selectedScans = CaptureExecutionSelection();
+        if (selectedScans.Count > 0)
+            return true;
+
+        StatusBarText = "処理対象のModが選択されていません。";
+        return false;
+    }
+
+    private List<JarScanResult> CaptureExecutionSelection()
+    {
+        _executionSubsetToModsIndex ??= [];
+        _executionSubsetToModsIndex.Clear();
+
+        var selected = new List<JarScanResult>();
+        if (Mods is null || _scanResults is null)
+            return selected;
+
+        var limit = Math.Min(Mods.Count, _scanResults.Count);
+        for (var i = 0; i < limit; i++)
+        {
+            if (!Mods[i].IsSelected)
+                continue;
+
+            _executionSubsetToModsIndex.Add(i);
+            selected.Add(_scanResults[i]);
+        }
+
+        return selected;
+    }
+
+    private void ClearExecutionSelectionCapture()
+    {
+        _executionSubsetToModsIndex?.Clear();
+    }
+
+    private int ResolveExecutionModsIndex(ExecutionProgress progress)
+    {
+        if (_executionSubsetToModsIndex is { Count: > 0 } map &&
+            progress.Index >= 0 &&
+            progress.Index < map.Count)
+        {
+            return map[progress.Index];
+        }
+
+        return progress.Index;
+    }
+
     private void UpdateExecutionProgress(ExecutionProgress progress)
     {
         ProgressPercent = progress.Total > 0
@@ -1005,17 +1070,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             : 0;
         ProgressText = $"{_activeActionLabel}: {progress.Current}/{progress.Total} - {progress.JarName}";
 
-        if (progress.Index < 0 || progress.Index >= Mods.Count)
+        if (Mods is null)
+            return;
+
+        var modsIndex = ResolveExecutionModsIndex(progress);
+        if (modsIndex < 0 || modsIndex >= Mods.Count)
             return;
 
         if (progress.Stage == ExecutionProgressStage.Started)
         {
-            Mods[progress.Index].Status = ModStatus.Processing;
+            Mods[modsIndex].Status = ModStatus.Processing;
             return;
         }
 
         if (progress.FinalStatus is ModStatus finalStatus)
-            Mods[progress.Index].Status = finalStatus;
+            Mods[modsIndex].Status = finalStatus;
     }
 
     private void MarkProcessingModsAsSkipped()

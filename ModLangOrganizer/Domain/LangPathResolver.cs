@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using ModLangOrganizer.Models;
 
 namespace ModLangOrganizer.Domain;
@@ -46,7 +48,8 @@ public static class LangPathResolver
     /// 外部編集用ディレクトリを決定する。
     /// JARの相対カテゴリ構造を維持し、JAR名（拡張子なし）のフォルダへlangファイルを配置する。
     /// 単一lang候補はJARフォルダ直下、複数lang候補は衝突回避のためその下にModIdフォルダを作る。
-    /// mapping はJAR反映時の対応情報としてのみ使用し、抽出先の物理配置は変更しない。
+    /// 万一allScans内で同一出力先となる別JARが存在する場合は、ハッシュトークンを付与して衝突を回避する。
+    /// さらに既存mappingで別JAR/候補が所有しているディレクトリへの衝突を排他チェックで防御する。
     /// </summary>
     public static string ResolveEditDirectory(
         string outputRoot,
@@ -55,12 +58,61 @@ public static class LangPathResolver
         WorkspaceMapping? existingMapping = null,
         IReadOnlyList<JarScanResult>? allScans = null)
     {
-        // 既存呼び出しとの互換性のため引数は維持する。
-        // 出力先は常にJAR基準で決定し、過去のmodId直下mappingには追従しない。
-        _ = existingMapping;
-        _ = allScans;
+        if (string.IsNullOrWhiteSpace(outputRoot))
+            throw new ArgumentException("出力ルートが指定されていません。", nameof(outputRoot));
 
-        return GetExternalLangDirectory(outputRoot, scan, candidate);
+        var fullOutputRoot = Path.GetFullPath(outputRoot);
+
+        // 1. 既存 mapping の確認（明示的なEditPathがあれば尊重しつつ排他所有権を検証）
+        if (existingMapping != null)
+        {
+            var matchedEntry = existingMapping.Entries.FirstOrDefault(e =>
+                e.JarRelativePath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase) &&
+                e.ModId.Equals(candidate.ModId, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedEntry != null && !string.IsNullOrEmpty(matchedEntry.EditPath))
+            {
+                var fullEditPath = Path.Combine(fullOutputRoot, matchedEntry.EditPath.Replace('/', Path.DirectorySeparatorChar));
+                var dirFromMapping = Path.GetDirectoryName(fullEditPath);
+                if (!string.IsNullOrEmpty(dirFromMapping))
+                {
+                    EnsureContained(dirFromMapping, fullOutputRoot);
+                    EnsureExclusiveEditDirectoryOwnership(
+                        dirFromMapping, fullOutputRoot, scan, candidate, existingMapping);
+                    return dirFromMapping;
+                }
+            }
+        }
+
+        // 2. 基本出力先（JAR相対カテゴリ + JAR名フォルダ [+ 複数候補時ModId]）
+        var baseDir = GetExternalLangDirectory(outputRoot, scan, candidate);
+
+        // 3. allScans内での出力先衝突判定（サニタイズや同名などで他JARと同一ディレクトリになる場合、ハッシュトークンで一意化）
+        string targetDir;
+        var hasCollision = allScans != null && allScans
+            .Where(s => !ReferenceEquals(s, scan))
+            .Any(s => s.LangCandidates.Any(c =>
+            {
+                var otherDir = GetExternalLangDirectory(outputRoot, s, c);
+                return otherDir.Equals(baseDir, StringComparison.OrdinalIgnoreCase);
+            }));
+
+        if (hasCollision)
+        {
+            var token = GetRelativeJarPathToken(scan.RelativeJarPath);
+            targetDir = $"{baseDir}__{token}";
+            EnsureContained(targetDir, fullOutputRoot);
+        }
+        else
+        {
+            targetDir = baseDir;
+        }
+
+        // 4. 排他所有権チェック（mapping上の他JAR所有ディレクトリへの書き込み防止）
+        EnsureExclusiveEditDirectoryOwnership(
+            targetDir, fullOutputRoot, scan, candidate, existingMapping);
+
+        return targetDir;
     }
 
     public static string GetExternalLangDirectory(
@@ -132,6 +184,55 @@ public static class LangPathResolver
         }
 
         return string.Join('/', segments);
+    }
+
+    private static string GetRelativeJarPathToken(string relativeJarPath)
+    {
+        var normalized = (relativeJarPath ?? string.Empty).Replace('\\', '/').ToLowerInvariant();
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(hash).ToLowerInvariant()[..16];
+    }
+
+    private static void EnsureExclusiveEditDirectoryOwnership(
+        string editDirectory,
+        string outputRoot,
+        JarScanResult scan,
+        LangCandidate candidate,
+        WorkspaceMapping? mapping)
+    {
+        if (mapping == null)
+            return;
+
+        var normalizedEditDir = Path.GetFullPath(editDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fullOutputRoot = Path.GetFullPath(outputRoot);
+
+        foreach (var entry in mapping.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.EditPath))
+                continue;
+
+            var sameOwner =
+                entry.JarRelativePath.Equals(scan.RelativeJarPath, StringComparison.OrdinalIgnoreCase) &&
+                entry.ModId.Equals(candidate.ModId, StringComparison.OrdinalIgnoreCase);
+            if (sameOwner)
+                continue;
+
+            var fullEditPath = Path.GetFullPath(
+                Path.Combine(fullOutputRoot, entry.EditPath.Replace('/', Path.DirectorySeparatorChar)));
+            var ownerDir = Path.GetDirectoryName(fullEditPath);
+            if (string.IsNullOrEmpty(ownerDir))
+                continue;
+
+            var normalizedOwnerDir = Path.GetFullPath(ownerDir)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (normalizedOwnerDir.Equals(normalizedEditDir, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"編集ディレクトリは別のJAR/候補のmappingが所有しているため書き込みできません: {editDirectory}");
+            }
+        }
     }
 
     private static void ValidatePathSegment(string value, string label)
