@@ -55,14 +55,36 @@ public sealed class ModItemViewModel : ObservableObject
         _ => $"{LangCount} (複数)"
     };
 
-    public string LangCodesDisplay => LangCodes.Count > 0 
-        ? string.Join(" ", LangCodes.Select(c => $"[{c}]")) 
-        : "—";
+    public string LangCodesDisplay
+    {
+        get
+        {
+            if (LangCodes.Count == 0) return "—";
+            if (LangCodes.Count <= 3)
+            {
+                return string.Join(" ", LangCodes.Select(c => $"[{c}]"));
+            }
+
+            // ja_jp や en_us があれば優先して前に表示
+            var prioritized = LangCodes
+                .OrderByDescending(c => c.Equals("ja_jp", StringComparison.OrdinalIgnoreCase) ? 2 :
+                                        c.Equals("en_us", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ToList();
+
+            var visible = prioritized.Take(2).Select(c => $"[{c}]");
+            var remaining = prioritized.Count - 2;
+            return $"{string.Join(" ", visible)} +{remaining}";
+        }
+    }
+
+    public string LangCodesTooltip => LangCodes.Count > 0
+        ? $"検出言語 ({LangCodes.Count}件):\n" + string.Join("\n", LangCodes.Select(c => $"• {c}"))
+        : "検出言語なし";
 
     public string StrategyDisplay => Strategy switch
     {
-        ProcessingStrategy.LangFound => "A (抽出)",
-        ProcessingStrategy.NoLang => "B (スキップ)",
+        ProcessingStrategy.LangFound => "抽出対象",
+        ProcessingStrategy.NoLang => "スキップ",
         _ => "—"
     };
 

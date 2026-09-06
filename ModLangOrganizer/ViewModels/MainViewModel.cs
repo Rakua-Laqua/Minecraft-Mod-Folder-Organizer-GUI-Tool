@@ -75,6 +75,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _issueModsCount;
     private string _searchText = string.Empty;
     private ModFilterTab _selectedFilterTab = ModFilterTab.All;
+    private int _selectedModsCount;
+    private bool? _isAllSelected = true;
+    private bool _isUpdatingSelection;
+    private bool _isLogPanelExpanded = true;
 
     // スキャン結果保持
     private List<JarScanResult> _scanResults = [];
@@ -90,6 +94,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         FilteredModsView = CollectionViewSource.GetDefaultView(Mods);
         FilteredModsView.Filter = FilterModItem;
 
+        FilteredLogEntriesView = CollectionViewSource.GetDefaultView(_logger.Entries);
+        FilteredLogEntriesView.Filter = FilterLogEntry;
+
         BrowseFolderCommand = new RelayCommand(BrowseFolder);
         BrowseOutputCommand = new RelayCommand(BrowseOutput);
         BrowseResourcePackOutputCommand = new RelayCommand(BrowseResourcePackOutput);
@@ -101,10 +108,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SaveLogCommand = new AsyncRelayCommand(SaveLogAsync);
         SelectAllCommand = new RelayCommand(SelectAll);
         UnselectAllCommand = new RelayCommand(UnselectAll);
+        SelectFilterTabCommand = new RelayCommand(p =>
+        {
+            if (p is ModFilterTab tab)
+            {
+                SelectedFilterTab = tab;
+            }
+            else if (p is string s && Enum.TryParse<ModFilterTab>(s, out var parsed))
+            {
+                SelectedFilterTab = parsed;
+            }
+        });
+        ToggleLogPanelCommand = new RelayCommand(() => IsLogPanelExpanded = !IsLogPanelExpanded);
+
+        Mods.CollectionChanged += (s, e) =>
+        {
+            if (e.NewItems != null)
+            {
+                foreach (ModItemViewModel item in e.NewItems)
+                    item.PropertyChanged += ModItem_PropertyChanged;
+            }
+            if (e.OldItems != null)
+            {
+                foreach (ModItemViewModel item in e.OldItems)
+                    item.PropertyChanged -= ModItem_PropertyChanged;
+            }
+            UpdateSelectionCounts();
+        };
 
         _logger.LogAdded += _ =>
         {
-            Application.Current?.Dispatcher.Invoke(() => OnPropertyChanged(nameof(LogEntries)));
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                OnPropertyChanged(nameof(LogEntries));
+                FilteredLogEntriesView.Refresh();
+                OnPropertyChanged(nameof(FilteredLogEntriesCount));
+            });
         };
 
         LoadSettings();
@@ -331,6 +370,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _searchText, value ?? string.Empty))
             {
                 FilteredModsView.Refresh();
+                UpdateSelectionCounts();
             }
         }
     }
@@ -343,11 +383,47 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _selectedFilterTab, value))
             {
                 FilteredModsView.Refresh();
+                FilteredLogEntriesView.Refresh();
+                OnPropertyChanged(nameof(FilteredLogEntriesCount));
+                UpdateSelectionCounts();
             }
         }
     }
 
+    public int SelectedModsCount
+    {
+        get => _selectedModsCount;
+        private set => SetProperty(ref _selectedModsCount, value);
+    }
+
+    public bool? IsAllSelected
+    {
+        get => _isAllSelected;
+        set
+        {
+            if (_isUpdatingSelection) return;
+            if (value.HasValue)
+            {
+                _isAllSelected = value;
+                OnPropertyChanged(nameof(IsAllSelected));
+                if (value.Value)
+                    SelectAll();
+                else
+                    UnselectAll();
+            }
+        }
+    }
+
+    public bool IsLogPanelExpanded
+    {
+        get => _isLogPanelExpanded;
+        set => SetProperty(ref _isLogPanelExpanded, value);
+    }
+
     public ICollectionView FilteredModsView { get; }
+    public ICollectionView FilteredLogEntriesView { get; }
+
+    public int FilteredLogEntriesCount => FilteredLogEntriesView.OfType<LogEntry>().Count();
 
     public ObservableCollection<ModItemViewModel> Mods { get; } = [];
     public ObservableCollection<LogEntry> LogEntries => _logger.Entries;
@@ -365,19 +441,67 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand SaveLogCommand { get; }
     public ICommand SelectAllCommand { get; }
     public ICommand UnselectAllCommand { get; }
+    public ICommand SelectFilterTabCommand { get; }
+    public ICommand ToggleLogPanelCommand { get; }
 
     // ---- Methods ----
+
+    private void ModItem_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ModItemViewModel.IsSelected))
+        {
+            UpdateSelectionCounts();
+        }
+    }
+
+    public void UpdateSelectionCounts()
+    {
+        if (_isUpdatingSelection) return;
+        _isUpdatingSelection = true;
+        try
+        {
+            var filteredList = FilteredModsView.OfType<ModItemViewModel>().ToList();
+            var totalFiltered = filteredList.Count;
+            var selectedFiltered = filteredList.Count(m => m.IsSelected);
+
+            SelectedModsCount = selectedFiltered;
+
+            if (totalFiltered == 0)
+            {
+                _isAllSelected = false;
+            }
+            else if (selectedFiltered == totalFiltered)
+            {
+                _isAllSelected = true;
+            }
+            else if (selectedFiltered == 0)
+            {
+                _isAllSelected = false;
+            }
+            else
+            {
+                _isAllSelected = null;
+            }
+            OnPropertyChanged(nameof(IsAllSelected));
+        }
+        finally
+        {
+            _isUpdatingSelection = false;
+        }
+    }
 
     private void SelectAll()
     {
         foreach (var item in FilteredModsView.OfType<ModItemViewModel>())
             item.IsSelected = true;
+        UpdateSelectionCounts();
     }
 
     private void UnselectAll()
     {
         foreach (var item in FilteredModsView.OfType<ModItemViewModel>())
             item.IsSelected = false;
+        UpdateSelectionCounts();
     }
 
     private bool FilterModItem(object obj)
@@ -400,12 +524,53 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                item.ReadableOperationSummary.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
 
+    private bool FilterLogEntry(object obj)
+    {
+        if (obj is not LogEntry entry) return false;
+
+        return SelectedFilterTab switch
+        {
+            ModFilterTab.Extractable =>
+                entry.Level != Models.LogLevel.Error &&
+                (entry.Message.Contains("抽出", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("lang検出", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("展開", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("反映", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("適用", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("更新", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("出力", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("ディレクトリ作成", StringComparison.OrdinalIgnoreCase) ||
+                 entry.Message.Contains("マッピング", StringComparison.OrdinalIgnoreCase)),
+
+            ModFilterTab.Fallback =>
+                entry.Message.Contains("フォールバック", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("コピー", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("生成", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("退避", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("en_us", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("ja_jp", StringComparison.OrdinalIgnoreCase),
+
+            ModFilterTab.Errors =>
+                entry.Level == Models.LogLevel.Error ||
+                entry.Level == Models.LogLevel.Warning ||
+                entry.Message.Contains("破損", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("失敗", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("エラー", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("警告", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("例外", StringComparison.OrdinalIgnoreCase) ||
+                entry.Message.Contains("中断", StringComparison.OrdinalIgnoreCase),
+
+            _ => true
+        };
+    }
+
     private void UpdateMetrics()
     {
         TotalModsCount = Mods.Count;
         ExtractableModsCount = Mods.Count(m => m.Strategy == ProcessingStrategy.LangFound || m.ExtractCount > 0);
         FallbackModsCount = Mods.Count(m => m.CopyCount > 0);
         IssueModsCount = Mods.Count(m => m.Integrity == JarIntegrity.Corrupted || m.Status == ModStatus.Failed);
+        UpdateSelectionCounts();
     }
 
     public void Dispose()

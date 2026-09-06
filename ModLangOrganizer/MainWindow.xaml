@@ -122,35 +122,42 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
                                              Text="{Binding TargetDir, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="{Binding TargetDir}"
                                              IsReadOnly="True" Margin="0,0,6,0"/>
                                     <Button Grid.Column="1" Content="参照..." 
-                                            Style="{StaticResource SecondaryButton}"
-                                            Padding="10,6"
-                                            Command="{Binding BrowseFolderCommand}"/>
+                                             Style="{StaticResource SecondaryButton}"
+                                             Padding="10,6"
+                                             Command="{Binding BrowseFolderCommand}"/>
                                 </Grid>
 
                                 <!-- Output Root -->
                                 <TextBlock Text="lang入出力ルート" Style="{StaticResource FieldLabel}"/>
-                                <Grid Margin="0,0,0,6">
+                                <Grid Margin="0,0,0,4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
                                              Text="{Binding OutputRoot, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="{Binding OutputRoot}"
                                              IsEnabled="{Binding OutputRootSameAsTarget, Converter={StaticResource InverseBool}}"
                                              Margin="0,0,6,0"/>
                                     <Button Grid.Column="1" Content="変更..."
-                                            Style="{StaticResource SecondaryButton}"
-                                            Padding="10,6"
-                                            Command="{Binding BrowseOutputCommand}"
-                                            IsEnabled="{Binding OutputRootSameAsTarget, Converter={StaticResource InverseBool}}"/>
+                                             Style="{StaticResource SecondaryButton}"
+                                             Padding="10,6"
+                                             Command="{Binding BrowseOutputCommand}"
+                                             IsEnabled="{Binding OutputRootSameAsTarget, Converter={StaticResource InverseBool}}"/>
                                 </Grid>
+
+                                <TextBlock Text="※ 親フォルダ直下に出力されます"
+                                           FontSize="11" Foreground="{StaticResource AccentLightBrush}"
+                                           Margin="0,0,0,6"
+                                           Visibility="{Binding OutputRootSameAsTarget, Converter={StaticResource BoolToVis}}"/>
 
                                 <CheckBox Style="{StaticResource ModernCheckBox}"
                                           Content="親フォルダと同じ場所にする"
                                           IsChecked="{Binding OutputRootSameAsTarget}"
-                                          Margin="0,4,0,12"/>
+                                          Margin="0,0,0,12"/>
 
                                 <!-- Resource Pack Output Root -->
                                 <TextBlock Text="リソースパック出力先（任意）" Style="{StaticResource FieldLabel}"/>
@@ -161,11 +168,12 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBox Grid.Column="0" Style="{StaticResource ModernTextBox}"
                                              Text="{Binding ResourcePackOutputRoot, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="{Binding ResourcePackOutputRoot}"
                                              Margin="0,0,6,0"/>
                                     <Button Grid.Column="1" Content="参照..."
-                                            Style="{StaticResource SecondaryButton}"
-                                            Padding="10,6"
-                                            Command="{Binding BrowseResourcePackOutputCommand}"/>
+                                             Style="{StaticResource SecondaryButton}"
+                                             Padding="10,6"
+                                             Command="{Binding BrowseResourcePackOutputCommand}"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -350,9 +358,22 @@
                     <!-- Row 2: Mod DataGrid -->
                     <RowDefinition Height="*"/>
                     <!-- Row 3: Splitter -->
-                    <RowDefinition Height="6"/>
+                    <RowDefinition Height="Auto"/>
                     <!-- Row 4: Log Terminal Panel -->
-                    <RowDefinition Height="190" MinHeight="100"/>
+                    <RowDefinition>
+                        <RowDefinition.Style>
+                            <Style TargetType="RowDefinition">
+                                <Setter Property="Height" Value="190"/>
+                                <Setter Property="MinHeight" Value="100"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLogPanelExpanded}" Value="False">
+                                        <Setter Property="Height" Value="Auto"/>
+                                        <Setter Property="MinHeight" Value="0"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </RowDefinition.Style>
+                    </RowDefinition>
                 </Grid.RowDefinitions>
 
                 <!-- ======================================= -->
@@ -367,7 +388,24 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- Card 1: Total Mods -->
-                    <Border Grid.Column="0" Style="{StaticResource MetricCard}" Margin="0,0,8,0">
+                    <Border Grid.Column="0" Margin="0,0,8,0" ToolTip="クリックしてすべて表示">
+                        <Border.InputBindings>
+                            <MouseBinding Gesture="LeftClick" Command="{Binding SelectFilterTabCommand}">
+                                <MouseBinding.CommandParameter>
+                                    <models:ModFilterTab>All</models:ModFilterTab>
+                                </MouseBinding.CommandParameter>
+                            </MouseBinding>
+                        </Border.InputBindings>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource MetricCard}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedFilterTab}" Value="{x:Static models:ModFilterTab.All}">
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <StackPanel>
                             <TextBlock Text="総Mod数" FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}"/>
                             <TextBlock Text="{Binding TotalModsCount}" FontSize="24" FontWeight="Bold"
@@ -377,8 +415,25 @@
                     </Border>
 
                     <!-- Card 2: Extractable -->
-                    <Border Grid.Column="1" Style="{StaticResource MetricCard}" Margin="4,0,4,0"
-                            BorderBrush="#4010B981">
+                    <Border Grid.Column="1" Margin="4,0,4,0" ToolTip="クリックして抽出可能Modでフィルタ">
+                        <Border.InputBindings>
+                            <MouseBinding Gesture="LeftClick" Command="{Binding SelectFilterTabCommand}">
+                                <MouseBinding.CommandParameter>
+                                    <models:ModFilterTab>Extractable</models:ModFilterTab>
+                                </MouseBinding.CommandParameter>
+                            </MouseBinding>
+                        </Border.InputBindings>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource MetricCard}">
+                                <Setter Property="BorderBrush" Value="#4010B981"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedFilterTab}" Value="{x:Static models:ModFilterTab.Extractable}">
+                                        <Setter Property="BorderBrush" Value="{StaticResource SuccessBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <StackPanel>
                             <TextBlock Text="抽出可能" FontSize="11.5" Foreground="{StaticResource SuccessBrush}"/>
                             <TextBlock Text="{Binding ExtractableModsCount}" FontSize="24" FontWeight="Bold"
@@ -388,8 +443,25 @@
                     </Border>
 
                     <!-- Card 3: Fallback Pending -->
-                    <Border Grid.Column="2" Style="{StaticResource MetricCard}" Margin="4,0,4,0"
-                            BorderBrush="#403B82F6">
+                    <Border Grid.Column="2" Margin="4,0,4,0" ToolTip="クリックしてフォールバック対象Modでフィルタ">
+                        <Border.InputBindings>
+                            <MouseBinding Gesture="LeftClick" Command="{Binding SelectFilterTabCommand}">
+                                <MouseBinding.CommandParameter>
+                                    <models:ModFilterTab>Fallback</models:ModFilterTab>
+                                </MouseBinding.CommandParameter>
+                            </MouseBinding>
+                        </Border.InputBindings>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource MetricCard}">
+                                <Setter Property="BorderBrush" Value="#403B82F6"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedFilterTab}" Value="{x:Static models:ModFilterTab.Fallback}">
+                                        <Setter Property="BorderBrush" Value="{StaticResource InfoBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <StackPanel>
                             <TextBlock Text="フォールバック対象" FontSize="11.5" Foreground="{StaticResource InfoBrush}"/>
                             <TextBlock Text="{Binding FallbackModsCount}" FontSize="24" FontWeight="Bold"
@@ -399,8 +471,25 @@
                     </Border>
 
                     <!-- Card 4: Issues -->
-                    <Border Grid.Column="3" Style="{StaticResource MetricCard}" Margin="8,0,0,0"
-                            BorderBrush="#40EF4444">
+                    <Border Grid.Column="3" Margin="8,0,0,0" ToolTip="クリックして異常・破損Modでフィルタ">
+                        <Border.InputBindings>
+                            <MouseBinding Gesture="LeftClick" Command="{Binding SelectFilterTabCommand}">
+                                <MouseBinding.CommandParameter>
+                                    <models:ModFilterTab>Errors</models:ModFilterTab>
+                                </MouseBinding.CommandParameter>
+                            </MouseBinding>
+                        </Border.InputBindings>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource MetricCard}">
+                                <Setter Property="BorderBrush" Value="#40EF4444"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedFilterTab}" Value="{x:Static models:ModFilterTab.Errors}">
+                                        <Setter Property="BorderBrush" Value="{StaticResource ErrorBrush}"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <StackPanel>
                             <TextBlock Text="異常・破損" FontSize="11.5" Foreground="{StaticResource ErrorBrush}"/>
                             <TextBlock Text="{Binding IssueModsCount}" FontSize="24" FontWeight="Bold"
@@ -498,6 +587,15 @@
 
                     <!-- Batch Selection Controls -->
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Background="{StaticResource BgElevatedBrush}" CornerRadius="6"
+                                Padding="8,4" Margin="0,0,10,0" VerticalAlignment="Center">
+                            <TextBlock FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}">
+                                <Run Text="{Binding SelectedModsCount, Mode=OneWay}" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}"/>
+                                <Run Text=" / "/>
+                                <Run Text="{Binding TotalModsCount, Mode=OneWay}"/>
+                                <Run Text=" 件 選択中"/>
+                            </TextBlock>
+                        </Border>
                         <Button Content="全選択" Style="{StaticResource SecondaryButton}"
                                 Command="{Binding SelectAllCommand}"
                                 Padding="10,6" FontSize="11.5" Margin="0,0,6,0"/>
@@ -516,10 +614,18 @@
                               CellStyle="{StaticResource ModernDataGridCell}"
                               RowStyle="{StaticResource ModernDataGridRow}"
                               ItemsSource="{Binding FilteredModsView}"
+                              RowDetailsVisibilityMode="Collapsed"
                               Margin="1">
                         <DataGrid.Columns>
                             <!-- Checkbox Column -->
                             <DataGridTemplateColumn Width="40">
+                                <DataGridTemplateColumn.Header>
+                                    <CheckBox Style="{StaticResource ModernCheckBox}"
+                                              IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                              IsThreeState="True"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              ToolTip="すべて選択 / 解除"/>
+                                </DataGridTemplateColumn.Header>
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <CheckBox Style="{StaticResource ModernCheckBox}"
@@ -556,7 +662,14 @@
                             </DataGridTemplateColumn>
 
                             <!-- Language Chips / Codes -->
-                            <DataGridTextColumn Header="検出言語" Binding="{Binding LangCodesDisplay}" Width="130"/>
+                            <DataGridTextColumn Header="検出言語" Binding="{Binding LangCodesDisplay}" Width="130">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="ToolTip" Value="{Binding LangCodesTooltip}"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
 
                             <!-- Strategy -->
                             <DataGridTextColumn Header="方針" Binding="{Binding StrategyDisplay}" Width="85"/>
@@ -599,7 +712,8 @@
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Center"
                               Background="Transparent"
-                              Cursor="SizeNS"/>
+                              Cursor="SizeNS"
+                              Visibility="{Binding IsLogPanelExpanded, Converter={StaticResource BoolToVis}}"/>
 
                 <!-- ======================================= -->
                 <!--  Row 4: Log Terminal Panel              -->
@@ -614,26 +728,44 @@
                                 <Border Background="{StaticResource BgElevatedBrush}" CornerRadius="10"
                                         Padding="8,2" Margin="10,0,0,0" VerticalAlignment="Center">
                                     <TextBlock FontSize="10.5" Foreground="{StaticResource TextMutedBrush}">
-                                        <Run Text="{Binding LogEntries.Count, Mode=OneWay}"/>
+                                        <Run Text="{Binding FilteredLogEntriesCount, Mode=OneWay}"/>
                                         <Run Text="件"/>
                                     </TextBlock>
                                 </Border>
                             </StackPanel>
 
-                            <Button Content="💾 ログ保存" 
-                                    Style="{StaticResource SecondaryButton}"
-                                    Command="{Binding SaveLogCommand}"
-                                    HorizontalAlignment="Right"
-                                    Padding="10,4"
-                                    FontSize="11.5"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="💾 ログ保存" 
+                                        Style="{StaticResource SecondaryButton}"
+                                        Command="{Binding SaveLogCommand}"
+                                        Padding="10,4"
+                                        FontSize="11.5" Margin="0,0,6,0"/>
+                                <Button Style="{StaticResource SecondaryButton}"
+                                        Command="{Binding ToggleLogPanelCommand}"
+                                        Padding="8,4" FontSize="11">
+                                    <TextBlock>
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="▼ 最小化"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsLogPanelExpanded}" Value="False">
+                                                        <Setter Property="Text" Value="▲ 展開"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Button>
+                            </StackPanel>
                         </Grid>
 
                         <!-- Console Output List -->
                         <Border DockPanel.Dock="Bottom"
                                 Background="{StaticResource BgDeepBrush}"
                                 CornerRadius="0,0,12,12"
-                                Padding="4" Margin="1,0,1,1">
-                            <ListBox ItemsSource="{Binding LogEntries}"
+                                Padding="4" Margin="1,0,1,1"
+                                Visibility="{Binding IsLogPanelExpanded, Converter={StaticResource BoolToVis}}">
+                            <ListBox ItemsSource="{Binding FilteredLogEntriesView}"
                                      Background="Transparent"
                                      BorderThickness="0"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"

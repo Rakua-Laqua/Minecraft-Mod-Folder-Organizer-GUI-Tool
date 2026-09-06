@@ -73,17 +73,28 @@ public sealed class FileSystemService
         using var streamA = infoA.OpenRead();
         using var streamB = infoB.OpenRead();
 
-        int readA, readB;
-        do
+        while (true)
         {
-            readA = streamA.Read(bufA, 0, bufferSize);
-            readB = streamB.Read(bufB, 0, bufferSize);
+            var readA = ReadFullChunk(streamA, bufA);
+            var readB = ReadFullChunk(streamB, bufB);
+
             if (readA != readB) return false;
+            if (readA == 0) return true;
             if (!bufA.AsSpan(0, readA).SequenceEqual(bufB.AsSpan(0, readB)))
                 return false;
-        } while (readA > 0);
+        }
+    }
 
-        return true;
+    private static int ReadFullChunk(Stream stream, byte[] buffer)
+    {
+        var totalRead = 0;
+        while (totalRead < buffer.Length)
+        {
+            var read = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+            if (read == 0) break;
+            totalRead += read;
+        }
+        return totalRead;
     }
 
     /// <summary>jarスナップショットを取得</summary>

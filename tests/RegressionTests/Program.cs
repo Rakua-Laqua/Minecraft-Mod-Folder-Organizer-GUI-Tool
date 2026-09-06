@@ -31,6 +31,8 @@ internal static class Program
         failed += Run("R4.BackupZipRootsAndContents", TestR4BackupZipRootsAndContents);
         failed += Run("R5.DangerousPathsAndResourcePack", TestR5DangerousPathsAndResourcePack);
         failed += Run("JarPathPolicy.RelativeBoundary", TestJarPathPolicyRelativeBoundary);
+        failed += Run("UIUX.NewFeatures", TestUiuxNewFeatures);
+        failed += Run("R6.LargeLangFileJarArchiveUpdate", TestR6LargeLangFileJarArchiveUpdate);
         Console.WriteLine(failed == 0 ? "ALL PASS" : $"FAILED {failed}");
         return failed == 0 ? 0 : 1;
     }
@@ -893,6 +895,174 @@ internal static class Program
             catch
             {
                 // ignore temp cleanup
+            }
+        }
+    }
+
+    private static void TestUiuxNewFeatures()
+    {
+        // 1. ModItemViewModel StrategyDisplay
+        var itemLang = new ModItemViewModel
+        {
+            JarFileName = "test-mod.jar",
+            Integrity = JarIntegrity.OK,
+            LangCount = 1,
+            Strategy = ProcessingStrategy.LangFound,
+            ExtractCount = 1,
+            CreateDirCount = 0,
+            CopyCount = 0,
+            ConflictCopyCount = 0,
+            CleanupCount = 0,
+            SkipCount = 0,
+            LangCodes = ["en_us", "ja_jp", "zh_cn", "ko_kr"]
+        };
+        Expect(itemLang.StrategyDisplay == "抽出対象", $"StrategyDisplay should be '抽出対象' but was '{itemLang.StrategyDisplay}'");
+        Expect(itemLang.LangCodesDisplay.Contains("+2"), $"LangCodesDisplay should truncate 4 languages but was '{itemLang.LangCodesDisplay}'");
+        Expect(itemLang.LangCodesTooltip.Contains("en_us") && itemLang.LangCodesTooltip.Contains("ja_jp"), "LangCodesTooltip should contain languages");
+
+        var itemSkip = new ModItemViewModel
+        {
+            JarFileName = "skip-mod.jar",
+            Integrity = JarIntegrity.OK,
+            LangCount = 0,
+            Strategy = ProcessingStrategy.NoLang,
+            ExtractCount = 0,
+            CreateDirCount = 0,
+            CopyCount = 0,
+            ConflictCopyCount = 0,
+            CleanupCount = 0,
+            SkipCount = 0
+        };
+        Expect(itemSkip.StrategyDisplay == "スキップ", $"StrategyDisplay should be 'スキップ' but was '{itemSkip.StrategyDisplay}'");
+        Expect(itemSkip.LangCodesDisplay == "—", "LangCodesDisplay for empty should be '—'");
+
+        // 2. MainViewModel: Selection counts, filter tabs, log filtering, panel toggle
+        using var vm = new MainViewModel();
+        Expect(vm.IsLogPanelExpanded, "IsLogPanelExpanded should be true by default");
+        vm.ToggleLogPanelCommand.Execute(null);
+        Expect(!vm.IsLogPanelExpanded, "IsLogPanelExpanded should toggle to false");
+        vm.ToggleLogPanelCommand.Execute(null);
+        Expect(vm.IsLogPanelExpanded, "IsLogPanelExpanded should toggle back to true");
+
+        // Add items to ViewModel
+        vm.Mods.Add(itemLang);
+        vm.Mods.Add(itemSkip);
+        vm.UpdateSelectionCounts();
+
+        Expect(vm.SelectedModsCount == 2, $"Selected count should be 2 but was {vm.SelectedModsCount}");
+        Expect(vm.IsAllSelected == true, "IsAllSelected should be true when all selected");
+
+        itemSkip.IsSelected = false;
+        Expect(vm.SelectedModsCount == 1, $"Selected count should be 1 after uncheck but was {vm.SelectedModsCount}");
+        Expect(vm.IsAllSelected == null, "IsAllSelected should be null (indeterminate) when partially selected");
+
+        vm.UnselectAllCommand.Execute(null);
+        Expect(vm.SelectedModsCount == 0, $"Selected count should be 0 after UnselectAll but was {vm.SelectedModsCount}");
+        Expect(vm.IsAllSelected == false, "IsAllSelected should be false when all unselected");
+
+        vm.SelectAllCommand.Execute(null);
+        Expect(vm.SelectedModsCount == 2, $"Selected count should be 2 after SelectAll but was {vm.SelectedModsCount}");
+        Expect(vm.IsAllSelected == true, "IsAllSelected should be true when all selected");
+
+        // Filter tab selection command
+        vm.SelectFilterTabCommand.Execute(ModFilterTab.Extractable);
+        Expect(vm.SelectedFilterTab == ModFilterTab.Extractable, "SelectedFilterTab should be Extractable");
+    }
+
+    private static void TestR6LargeLangFileJarArchiveUpdate()
+    {
+        // 1. 81920バイト（内部バッファサイズ）を超える巨大な lang ファイルを作成
+        using var temp = new TempDir();
+        var jarPath = Path.Combine(temp.Path, "large-test-mod.jar");
+        var largeLangPath = Path.Combine(temp.Path, "en_us.json");
+
+        var sb = new StringBuilder();
+        sb.AppendLine("{");
+        for (int i = 0; i < 3000; i++)
+        {
+            sb.AppendLine($"  \"item.large_test_mod.item_{i:D5}\": \"Localized Name for Item {i:D5} with extra padding words to increase byte size\",");
+        }
+        sb.AppendLine("  \"item.large_test_mod.last\": \"Last item\"");
+        sb.AppendLine("}");
+        var originalContent = sb.ToString();
+        File.WriteAllText(largeLangPath, originalContent, Encoding.UTF8);
+
+        var fileLength = new FileInfo(largeLangPath).Length;
+        Expect(fileLength > 100000, $"File should be > 100KB to exceed 81920 buffer, but was {fileLength}");
+
+        // 2. JARファイルを作成し、この巨大 lang ファイルを格納
+        using (var fs = File.Create(jarPath))
+        using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+        {
+            var manifest = zip.CreateEntry("META-INF/MANIFEST.MF");
+            using (var writer = new StreamWriter(manifest.Open()))
+            {
+                writer.WriteLine("Manifest-Version: 1.0");
+            }
+
+            var entry = zip.CreateEntry("assets/large_test_mod/lang/en_us.json", CompressionLevel.Optimal);
+            using var entryStream = entry.Open();
+            using var fileStream = File.OpenRead(largeLangPath);
+            fileStream.CopyTo(entryStream);
+        }
+
+        var updater = new JarArchiveUpdater();
+
+        // 3. テストA: 同一内容の反映（未変更判定されること）
+        var importListSame = new List<JarImportFile>
+        {
+            new(largeLangPath, "assets/large_test_mod/lang/en_us.json")
+        };
+        var resultSame = updater.Update(jarPath, importListSame, false, CancellationToken.None);
+        Expect(resultSame.UnchangedCount == 1, $"UnchangedCount should be 1 but was {resultSame.UnchangedCount}");
+        Expect(resultSame.UpdatedCount == 0, $"UpdatedCount should be 0 but was {resultSame.UpdatedCount}");
+        Expect(resultSame.AddedCount == 0, $"AddedCount should be 0 but was {resultSame.AddedCount}");
+
+        // 4. テストB: 内容更新（ValidateImportedFiles での DeflateStream 部分読み取りバグが起きないこと）
+        var updatedLangPath = Path.Combine(temp.Path, "en_us_updated.json");
+        var updatedContent = originalContent.Replace("Localized Name", "Updated Name");
+        File.WriteAllText(updatedLangPath, updatedContent, Encoding.UTF8);
+
+        var importListUpdate = new List<JarImportFile>
+        {
+            new(updatedLangPath, "assets/large_test_mod/lang/en_us.json")
+        };
+        var resultUpdate = updater.Update(jarPath, importListUpdate, false, CancellationToken.None);
+        Expect(resultUpdate.UpdatedCount == 1, $"UpdatedCount should be 1 but was {resultUpdate.UpdatedCount}");
+        Expect(resultUpdate.AddedCount == 0, $"AddedCount should be 0 but was {resultUpdate.AddedCount}");
+
+        // 5. テストC: 新規大容量ファイル追加（ja_jp.json）
+        var jaLangPath = Path.Combine(temp.Path, "ja_jp.json");
+        var jaContent = originalContent.Replace("Localized Name", "日本語アイテム名");
+        File.WriteAllText(jaLangPath, jaContent, Encoding.UTF8);
+
+        var importListAdd = new List<JarImportFile>
+        {
+            new(jaLangPath, "assets/large_test_mod/lang/ja_jp.json")
+        };
+        var resultAdd = updater.Update(jarPath, importListAdd, false, CancellationToken.None);
+        Expect(resultAdd.AddedCount == 1, $"AddedCount should be 1 but was {resultAdd.AddedCount}");
+
+        // 6. ユーザー実環境が存在する場合はそちらの検証も実施
+        var userTargetDir = @"C:\Users\Rakua\Documents\Minecraft\Minecraft_mod_management\1.20.1 ディメンション改造";
+        if (Directory.Exists(userTargetDir))
+        {
+            var logger = new Logger();
+            var scanner = new JarScanner();
+            var jars = scanner.EnumerateJars(userTargetDir, userTargetDir);
+            var scanResults = jars.Select(j => scanner.ScanJar(j, userTargetDir, userTargetDir)).ToList();
+            var mappingStore = new TranslationMappingStore();
+            var mapping = mappingStore.Load(userTargetDir, userTargetDir);
+            var importer = new JarLangImporter(logger);
+            var plan = importer.CreatePlan(scanResults, userTargetDir, mapping);
+
+            foreach (var jarPlan in plan.JarPlans)
+            {
+                if (jarPlan.Files.Count == 0) continue;
+                var testCopy = Path.Combine(temp.Path, Path.GetFileName(jarPlan.ScanResult.JarFilePath));
+                File.Copy(jarPlan.ScanResult.JarFilePath, testCopy, true);
+                var updateRes = updater.Update(testCopy, jarPlan.Files, false, CancellationToken.None);
+                Expect(updateRes != null, "User jar update should succeed");
             }
         }
     }

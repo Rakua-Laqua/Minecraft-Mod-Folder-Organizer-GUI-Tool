@@ -397,6 +397,7 @@
         <Setter Property="AutoGenerateColumns" Value="False"/>
         <Setter Property="IsReadOnly" Value="True"/>
         <Setter Property="RowHeight" Value="36"/>
+        <Setter Property="RowDetailsVisibilityMode" Value="Collapsed"/>
     </Style>
 
     <Style x:Key="ModernColumnHeader" TargetType="DataGridColumnHeader">
@@ -507,6 +508,12 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
         <Setter Property="Padding" Value="14,10"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{StaticResource BgHoverBrush}"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!-- ============================================================ -->

@@ -470,8 +470,8 @@ public sealed class JarArchiveUpdater
         while (true)
         {
             ThrowIfPerFileCancellationRequested(cancelPerFile, ct);
-            var leftRead = left.Read(leftBuffer, 0, leftBuffer.Length);
-            var rightRead = right.Read(rightBuffer, 0, rightBuffer.Length);
+            var leftRead = ReadFullChunk(left, leftBuffer, cancelPerFile, ct);
+            var rightRead = ReadFullChunk(right, rightBuffer, cancelPerFile, ct);
 
             if (leftRead != rightRead)
                 return false;
@@ -480,6 +480,24 @@ public sealed class JarArchiveUpdater
             if (!leftBuffer.AsSpan(0, leftRead).SequenceEqual(rightBuffer.AsSpan(0, rightRead)))
                 return false;
         }
+    }
+
+    private static int ReadFullChunk(
+        Stream stream,
+        byte[] buffer,
+        bool cancelPerFile,
+        CancellationToken ct)
+    {
+        var totalRead = 0;
+        while (totalRead < buffer.Length)
+        {
+            ThrowIfPerFileCancellationRequested(cancelPerFile, ct);
+            var read = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+            if (read == 0)
+                break;
+            totalRead += read;
+        }
+        return totalRead;
     }
 
     private static void CopyTo(

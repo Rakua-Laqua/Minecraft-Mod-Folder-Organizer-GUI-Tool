@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v3.0.1 - 2026-09-07
+### Fixed
+- **大容量言語ファイルのJAR反映時における検証失敗（誤判定）の修正**:
+  - `JarArchiveUpdater` のストリームバイト比較処理（`StreamsEqual`）において、ZIP解凍ストリーム（`DeflateStream`）の仕様である分割読み取り（Partial Read）に対応。要求バッファサイズを満たすまで確実に読み切る `ReadFullChunk` を導入
+  - 数万バイト〜100KBを超える大きな言語ファイル（`de_de.json`, `ru_ru.json`, `en_us.json`, 翻訳済み `ja_jp.json` 等）を含むMODで「反映後JARの検証に失敗しました」という例外が発生しロールバックされる不具合を根本解消
+- **ファイル比較の堅牢性向上**:
+  - `FileSystemService.IsSameContent` においても分割読み取りに対応し、特殊なファイルシステムや大容量ファイルでの比較信頼性を向上
+- **回帰テスト拡充**:
+  - 100KB超の言語ファイルを用いた追加・更新・未変更判定の自動テスト（`R6.LargeLangFileJarArchiveUpdate`）を追加
+
 ## v3.0.0 - 2026-09-05
 ### Added
 - **2ペイン・ダッシュボード型ワークスペースへのUI全面刷新**:
