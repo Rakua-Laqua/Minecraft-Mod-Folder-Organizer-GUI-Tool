@@ -92,7 +92,13 @@ public sealed class Executor
                     _logger.Info($"ディレクトリ作成: {outLang}");
 
                     // 旧mapping先（ルート直下等）から既存翻訳ファイルを安全に引き継ぐ
-                    MigrateLegacyMappingEntries(mapping, outputRoot, scan, candidate, outLang);
+                    if (!MigrateLegacyMappingEntries(mapping, outputRoot, scan, candidate, outLang))
+                    {
+                        allCopySuccess = false;
+                        hasWarnings = true;
+                        _logger.Error($"既存翻訳ファイルの移行に失敗したため、このlang候補の処理を安全に中断します: {logLangPath}");
+                        continue;
+                    }
 
                     // 旧競合コピーはJAR由来の退避ファイルなので、新方式への移行時に整理する。
                     try
@@ -428,8 +434,9 @@ public sealed class Executor
     /// 旧抽出フォルダ（ルート直下等）に存在する既存mappingの翻訳ファイルを、
     /// 新しい正規のJAR単位フォルダへ安全に引き継ぎ（1ファイルずつコピー）、mappingのEditPathを新配置へ更新する。
     /// 旧ディレクトリ内のファイル全コピーではなく、対象 candidate の mapping entry だけを根拠とする。
+    /// 旧実体が存在するのに移行に失敗した場合は false を返し、呼び出し側で当該 candidate の処理を安全に中断する。
     /// </summary>
-    private void MigrateLegacyMappingEntries(
+    private bool MigrateLegacyMappingEntries(
         WorkspaceMapping? mapping,
         string outputRoot,
         JarScanResult scan,
@@ -437,7 +444,7 @@ public sealed class Executor
         string newOutLangDir)
     {
         if (mapping == null)
-            return;
+            return true;
 
         var fullOutputRoot = Path.GetFullPath(outputRoot);
         var normalizedNewOutLang = Path.GetFullPath(newOutLangDir)
@@ -451,15 +458,30 @@ public sealed class Executor
             e.ArchivePath.StartsWith(archivePrefix, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(e.EditPath)).ToList();
 
+        var migrationSuccess = true;
+
         foreach (var entry in matchedEntries)
         {
             var oldEditFullPath = Path.GetFullPath(
                 Path.Combine(fullOutputRoot, entry.EditPath.Replace('/', Path.DirectorySeparatorChar)));
-            var fileName = Path.GetFileName(oldEditFullPath);
-            if (string.IsNullOrWhiteSpace(fileName))
+
+            // OutputRoot 包含検証（パストラバーサル防御）
+            if (!JarPathPolicy.IsSameOrUnder(oldEditFullPath, fullOutputRoot) ||
+                oldEditFullPath.Equals(fullOutputRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.Warn($"不正な旧EditPath（OutputRoot外）のためMigrationから除外: {entry.EditPath}");
+                continue;
+            }
+
+            // 新配置の正規ファイル名は ArchivePath の末尾 basename を基準とする
+            var targetFileName = Path.GetFileName(entry.ArchivePath);
+            if (string.IsNullOrWhiteSpace(targetFileName))
+                targetFileName = Path.GetFileName(oldEditFullPath);
+
+            if (string.IsNullOrWhiteSpace(targetFileName))
                 continue;
 
-            var newEditFullPath = Path.GetFullPath(Path.Combine(normalizedNewOutLang, fileName));
+            var newEditFullPath = Path.GetFullPath(Path.Combine(normalizedNewOutLang, targetFileName));
 
             if (oldEditFullPath.Equals(newEditFullPath, StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -487,12 +509,20 @@ public sealed class Executor
                     entry.EditPath = newEditRelativePath;
                     entry.LastUpdated = DateTimeOffset.Now;
                 }
+                else
+                {
+                    _logger.Error($"既存翻訳のコピー確認失敗: {entry.EditPath} → {newEditFullPath}");
+                    migrationSuccess = false;
+                }
             }
             catch (Exception ex)
             {
-                _logger.Warn($"既存翻訳の引き継ぎ失敗: {entry.EditPath} → {newEditFullPath}: {ex.Message}");
+                _logger.Error($"既存翻訳の引き継ぎ失敗: {entry.EditPath} → {newEditFullPath}: {ex.Message}");
+                migrationSuccess = false;
             }
         }
+
+        return migrationSuccess;
     }
 
     private static void RegisterMappingEntry(

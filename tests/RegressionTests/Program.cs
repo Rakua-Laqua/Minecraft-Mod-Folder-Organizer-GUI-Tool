@@ -441,6 +441,72 @@ internal static class Program
             "manual translation kept without being overwritten by en fallback");
         Expect(fallbackMapping.Entries[0].EditPath.Replace('\\', '/').Equals("04_lib/only_en/ja_jp.json", StringComparison.OrdinalIgnoreCase),
             "fallback mapping updated to new location");
+
+        // 9. 検証 f: OutputRoot外パストラバーサルの安全除外
+        var traversalMapping = new WorkspaceMapping();
+        traversalMapping.Entries.Add(new TranslationMappingEntry
+        {
+            EditPath = "../../outside.json",
+            JarRelativePath = fallbackJarRelative,
+            ModId = "only_en",
+            ArchivePath = "assets/only_en/lang/ja_jp.json"
+        });
+        var okTraversal = InvokeInstance<bool>(executor, "MigrateLegacyMappingEntries",
+            traversalMapping, outputRoot, fallbackScan, fallbackCand, expectedFallbackNewDir);
+        Expect(okTraversal, "traversal entry is safely skipped without throwing unhandled crash");
+        Expect(traversalMapping.Entries[0].EditPath == "../../outside.json", "traversal entry is not retargeted");
+
+        // 10. 検証 g: Migrationコピー失敗時の安全中断（mapping付け替え・翻訳孤立の防止）
+        var failJarRelative = Path.Combine("04_lib", "fail_mod.jar");
+        var failJarFullPath = Path.Combine(targetDir, failJarRelative);
+        using (var zip = ZipFile.Open(failJarFullPath, ZipArchiveMode.Create))
+        {
+            var entryJa = zip.CreateEntry("assets/fail_mod/lang/ja_jp.json");
+            using var writer = new StreamWriter(entryJa.Open(), Encoding.UTF8);
+            writer.Write("{\"k\":\"jar_new\"}");
+        }
+        var failCand = new LangCandidate
+        {
+            ModId = "fail_mod",
+            ArchiveLangPath = "assets/fail_mod/lang",
+            Files = ["ja_jp.json"]
+        };
+        var failScan = new JarScanResult
+        {
+            JarFileName = "fail_mod.jar",
+            JarFilePath = failJarFullPath,
+            RelativeJarPath = failJarRelative,
+            Integrity = JarIntegrity.OK,
+            Strategy = ProcessingStrategy.LangFound,
+            LangCandidates = [failCand]
+        };
+        var failLegacyDir = Path.Combine(outputRoot, "fail_mod");
+        Directory.CreateDirectory(failLegacyDir);
+        var failLegacyJa = Path.Combine(failLegacyDir, "ja_jp.json");
+        File.WriteAllText(failLegacyJa, "{\"k\":\"my_precious_user_translation\"}", Encoding.UTF8);
+
+        var failMapping = new WorkspaceMapping();
+        failMapping.Entries.Add(new TranslationMappingEntry
+        {
+            EditPath = "fail_mod/ja_jp.json",
+            JarRelativePath = failJarRelative,
+            ModId = "fail_mod",
+            ArchivePath = "assets/fail_mod/lang/ja_jp.json"
+        });
+
+        // 新配置ファイル名をファイルではなく「ディレクトリ」として作成し、CopyFileを確実に失敗させる
+        var failTargetDir = Path.Combine(outputRoot, "04_lib", "fail_mod");
+        var failBlockingDir = Path.Combine(failTargetDir, "ja_jp.json");
+        Directory.CreateDirectory(failBlockingDir);
+
+        var failResult = Await(executor.ExecuteAsync([failScan], outputRoot, options, progress, CancellationToken.None, failMapping, [failScan]));
+        Expect(failResult.WarningCount > 0, "failure records warning");
+
+        // コピー失敗時、当該candidateの通常抽出処理が安全に中断され、mappingが新配置へ付け替えられず旧パスのまま保持されていること
+        Expect(failMapping.Entries[0].EditPath == "fail_mod/ja_jp.json",
+            "mapping EditPath is not stolen/retargeted when migration copy fails");
+        Expect(File.ReadAllText(failLegacyJa, Encoding.UTF8).Contains("my_precious_user_translation"),
+            "original user translation remains preserved in old directory");
     }
 
     private static void TestR3RegisterMappingRefuseRetarget()
@@ -753,6 +819,7 @@ internal static class Program
     }
 
     private static void Await(Task task) => task.GetAwaiter().GetResult();
+    private static T Await<T>(Task<T> task) => task.GetAwaiter().GetResult();
 
     private static void ExpectThrowsInvalidData(Action action, string label)
     {
