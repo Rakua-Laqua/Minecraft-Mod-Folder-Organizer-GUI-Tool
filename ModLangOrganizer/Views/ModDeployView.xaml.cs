@@ -64,8 +64,19 @@ public partial class ModDeployView : UserControl
                     Mode = BindingMode.OneWay
                 });
 
+            Dispatcher.BeginInvoke(() => BindNodeCheckBox(item));
             WireTreeItemVisibility(item);
         }
+    }
+
+    private static void BindNodeCheckBox(TreeViewItem item)
+    {
+        var checkBox = FindVisualChildren<CheckBox>(item)
+            .FirstOrDefault(candidate => ReferenceEquals(candidate.DataContext, item.DataContext));
+        if (checkBox is null)
+            return;
+
+        checkBox.SetBinding(CheckBox.IsThreeStateProperty, new Binding("IsThreeState") { Mode = BindingMode.OneWay });
     }
 
     /// <summary>
