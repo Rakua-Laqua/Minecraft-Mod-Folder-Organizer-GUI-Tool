@@ -1,0 +1,28 @@
+name: Temporary Deploy Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-regression:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore Minecraft-Mod-Folder-Organizer-GUI-Tool.sln
+
+      - name: Build
+        run: dotnet build Minecraft-Mod-Folder-Organizer-GUI-Tool.sln --configuration Release --no-restore
+
+      - name: Regression tests
+        run: dotnet run --project tests/RegressionTests/RegressionTests.csproj --configuration Release --no-build
