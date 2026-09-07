@@ -230,6 +230,7 @@
                         <TreeView.ItemContainerStyle>
                             <Style TargetType="TreeViewItem">
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}"/>
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                                 <Setter Property="FontFamily" Value="{StaticResource UIFont}"/>
                                 <Setter Property="FontSize" Value="12.5"/>
@@ -249,7 +250,7 @@
                                     <!-- Tri-state Checkbox -->
                                     <CheckBox Grid.Column="0" Style="{StaticResource ModernCheckBox}"
                                               IsChecked="{Binding IsChecked, Mode=TwoWay}"
-                                              IsThreeState="True"
+                                              IsThreeState="{Binding IsThreeState}"
                                               VerticalAlignment="Center" Margin="0,0,8,0"/>
 
                                     <!-- Icon -->
@@ -467,6 +468,23 @@
                                 </Border>
                             </Grid>
 
+                            <!-- Conflict Warning -->
+                            <Border Background="#15EF4444" BorderBrush="{StaticResource ErrorBrush}" BorderThickness="1"
+                                    CornerRadius="{StaticResource RadiusMd}" Padding="10,8" Margin="0,0,0,8"
+                                    Visibility="{Binding HasConflicts, Converter={StaticResource BoolToVis}}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding ConflictSummary}"
+                                               Foreground="{StaticResource ErrorBrush}" FontSize="11.5" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"/>
+                                    <Button Grid.Column="1" Content="衝突の詳細..." Style="{StaticResource DangerButton}"
+                                            Padding="10,5" Command="{Binding ShowConflictsCommand}"/>
+                                </Grid>
+                            </Border>
+
                             <!-- Toggle Diff Details Button -->
                             <Button Style="{StaticResource SecondaryButton}" Height="32"
                                     Margin="0,0,0,6" Command="{Binding ToggleDiffDetailsCommand}">
@@ -521,6 +539,18 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Deployment Progress -->
+                    <Grid Margin="0,0,0,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <ProgressBar Grid.Row="0" Minimum="0" Maximum="100" Height="6"
+                                     Value="{Binding DeployProgressPercent}"/>
+                        <TextBlock Grid.Row="1" Text="{Binding DeployProgressText}" FontSize="10.5"
+                                   Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right" Margin="0,4,0,0"/>
+                    </Grid>
+
                     <!-- 4. Deploy Action Button -->
                     <Button Height="44" Style="{StaticResource PrimaryButton}"
                             Command="{Binding DeployCommand}" Margin="0,0,0,12">
@@ -532,7 +562,7 @@
                         </Button.Background>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="🚀" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="modsフォルダへ反映（同期デプロイ）" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding DeployButtonText}" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
 
