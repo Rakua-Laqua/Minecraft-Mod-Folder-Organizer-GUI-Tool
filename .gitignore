@@ -22,3 +22,10 @@ artifacts/
 # OS
 Thumbs.db
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/

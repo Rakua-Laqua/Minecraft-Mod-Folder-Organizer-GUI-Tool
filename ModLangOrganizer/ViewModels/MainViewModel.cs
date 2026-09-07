@@ -151,6 +151,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     // ---- Properties ----
 
+    private int _selectedNavigationTab = 0;
+    /// <summary>ナビゲーションタブ (0: Lang Organizer, 1: Copy Manager)</summary>
+    public int SelectedNavigationTab
+    {
+        get => _selectedNavigationTab;
+        set => SetProperty(ref _selectedNavigationTab, value);
+    }
+
+    /// <summary>MOD構成デプロイ画面のViewModel</summary>
+    public DeployViewModel Deploy { get; } = new();
+
     public string TargetDir
     {
         get => _targetDir;
@@ -158,6 +169,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             var normalized = value ?? string.Empty;
             if (!SetProperty(ref _targetDir, normalized)) return;
+
+            if (!string.IsNullOrEmpty(normalized))
+                Deploy.RepoPath = normalized;
 
             if (_outputRootSameAsTarget)
                 OutputRoot = JarPathPolicy.GetDefaultOutputRoot(normalized);

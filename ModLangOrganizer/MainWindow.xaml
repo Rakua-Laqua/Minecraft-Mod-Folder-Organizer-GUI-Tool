@@ -6,8 +6,9 @@
         xmlns:vm="clr-namespace:ModLangOrganizer.ViewModels"
         xmlns:conv="clr-namespace:ModLangOrganizer.Converters"
         xmlns:models="clr-namespace:ModLangOrganizer.Models"
+        xmlns:views="clr-namespace:ModLangOrganizer.Views"
         mc:Ignorable="d"
-        Title="Mod Lang Organizer"
+        Title="Mod &amp; Lang Organizer Studio"
         Height="840" Width="1260"
         MinHeight="680" MinWidth="1020"
         WindowStartupLocation="CenterScreen"
@@ -25,6 +26,8 @@
         <conv:IntegrityToColorConverter x:Key="IntegrityToColor"/>
         <conv:SnapshotStateToColorConverter x:Key="SnapshotToColor"/>
         <conv:EnumToBoolConverter x:Key="EnumToBool"/>
+        <conv:EqualityToBoolConverter x:Key="EqToBool"/>
+        <conv:EqualityToVisibilityConverter x:Key="EqToVis"/>
     </Window.Resources>
 
     <Grid>
@@ -38,11 +41,11 @@
         </Grid.RowDefinitions>
 
         <!-- =============================================== -->
-        <!--  Custom Title Bar                               -->
+        <!--  Custom Title Bar with Mode Tabs                -->
         <!-- =============================================== -->
         <Border Grid.Row="0" Background="{StaticResource BgBaseBrush}"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
-                Padding="20,12">
+                Padding="20,10">
             <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- App Icon (Minecraft-style cube) -->
@@ -56,14 +59,45 @@
                         <TextBlock Text="⬡" Foreground="White" FontSize="16"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                    <TextBlock Text="Mod Lang Organizer"
+                    <TextBlock Text="Mod &amp; Lang Organizer Studio"
                                FontFamily="{StaticResource UIFont}"
                                FontSize="16" FontWeight="Bold"
                                Foreground="{StaticResource TextPrimaryBrush}"
                                VerticalAlignment="Center"/>
                     <Border Background="#206C63FF" CornerRadius="4" Padding="6,2" Margin="10,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="v3.0" FontSize="11" FontWeight="SemiBold"
+                        <TextBlock Text="v4.0 統合版" FontSize="11" FontWeight="SemiBold"
                                    Foreground="{StaticResource AccentLightBrush}"/>
+                    </Border>
+
+                    <!-- Navigation Tabs (Segmented Control) -->
+                    <Border Background="{StaticResource BgDeepBrush}" CornerRadius="8" Padding="3"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                            Margin="24,0,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <!-- タブ1: 言語・翻訳抽出 (STEP 1) -->
+                            <RadioButton Style="{StaticResource NavTabRadio}" GroupName="MainTabs"
+                                         IsChecked="{Binding SelectedNavigationTab, Converter={StaticResource EqToBool}, ConverterParameter=0, Mode=TwoWay}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="🌐" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="MOD言語・翻訳抽出" VerticalAlignment="Center"/>
+                                    <Border Background="#206C63FF" CornerRadius="3" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="STEP 1" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource AccentLightBrush}"/>
+                                    </Border>
+                                </StackPanel>
+                            </RadioButton>
+
+                            <!-- タブ2: MOD構成デプロイ (STEP 2) -->
+                            <RadioButton Style="{StaticResource NavTabRadio}" GroupName="MainTabs"
+                                         IsChecked="{Binding SelectedNavigationTab, Converter={StaticResource EqToBool}, ConverterParameter=1, Mode=TwoWay}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="🚀" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="MOD構成デプロイ" VerticalAlignment="Center"/>
+                                    <Border Background="#2010B981" CornerRadius="3" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="STEP 2" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}"/>
+                                    </Border>
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 
@@ -86,15 +120,19 @@
         </Border>
 
         <!-- =============================================== -->
-        <!--  Main 2-Pane Content                            -->
+        <!--  Main Content Area                              -->
         <!-- =============================================== -->
         <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <!-- Left Sidebar: Settings & Actions -->
-                <ColumnDefinition Width="340" MinWidth="300" MaxWidth="420"/>
-                <!-- Right Main Area: Workspace & Console -->
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+            <!-- =========================================== -->
+            <!--  TAB 1: MOD LANG ORGANIZER (言語・翻訳抽出)  -->
+            <!-- =========================================== -->
+            <Grid Visibility="{Binding SelectedNavigationTab, Converter={StaticResource EqToVis}, ConverterParameter=0}">
+                <Grid.ColumnDefinitions>
+                    <!-- Left Sidebar: Settings & Actions -->
+                    <ColumnDefinition Width="340" MinWidth="300" MaxWidth="420"/>
+                    <!-- Right Main Area: Workspace & Console -->
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
             <!-- =========================================== -->
             <!--  LEFT SIDEBAR: Settings & Actions           -->
@@ -809,6 +847,16 @@
                 </Border>
 
             </Grid>
+            <!-- END OF TAB 1 GRID (Grid.Column=1) -->
+            </Grid>
+            <!-- END OF TAB 1 CONTAINER -->
+
+            <!-- =========================================== -->
+            <!--  TAB 2: MOD DEPLOYMENT (MOD構成デプロイ)     -->
+            <!-- =========================================== -->
+            <views:ModDeployView DataContext="{Binding Deploy}"
+                                 Visibility="{Binding SelectedNavigationTab, Converter={StaticResource EqToVis}, ConverterParameter=1}"/>
+
         </Grid>
 
         <!-- =============================================== -->

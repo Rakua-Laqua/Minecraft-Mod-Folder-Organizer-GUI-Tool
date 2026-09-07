@@ -119,3 +119,38 @@ public sealed class EnumToBoolConverter : IValueConverter
         return Binding.DoNothing;
     }
 }
+
+/// <summary>値の一致を判定してboolを返す (EqualityToBool)</summary>
+public sealed class EqualityToBoolConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value?.ToString() == parameter?.ToString();
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is true && parameter != null)
+        {
+            if (targetType == typeof(int) && int.TryParse(parameter.ToString(), out int intVal))
+                return intVal;
+            return parameter.ToString()!;
+        }
+        return Binding.DoNothing;
+    }
+}
+
+/// <summary>値の一致を判定してVisibilityを返す (EqualityToVisibility)</summary>
+public sealed class EqualityToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool match = value?.ToString() == parameter?.ToString();
+        bool invert = culture?.ToString() == "Invert"; // パラメータではなく安全な比較
+        return match ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
