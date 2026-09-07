@@ -46,7 +46,7 @@ public partial class ModDeployView : UserControl
         {
             itemsControl.ItemContainerGenerator.StatusChanged += (_, _) =>
             {
-                Dispatcher.BeginInvoke(() => WireTreeItemVisibility(itemsControl));
+                _ = Dispatcher.InvokeAsync(() => WireTreeItemVisibility(itemsControl));
             };
         }
 
@@ -64,7 +64,7 @@ public partial class ModDeployView : UserControl
                     Mode = BindingMode.OneWay
                 });
 
-            Dispatcher.BeginInvoke(() => BindNodeCheckBox(item));
+            _ = Dispatcher.InvokeAsync(() => BindNodeCheckBox(item));
             WireTreeItemVisibility(item);
         }
     }
