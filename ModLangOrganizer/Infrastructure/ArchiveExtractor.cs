@@ -22,7 +22,10 @@ public sealed class ArchiveExtractor
         return Path.Combine(GetTempRoot(), $"{jarName}_{hash}");
     }
 
-    /// <summary>安全にjarを展開する（Zip Slip対策）</summary>
+    /// <summary>
+    /// JAR内の全エントリを安全検証しつつ、lang直下の .json / .lang だけを一時抽出する。
+    /// JAR全体を展開しないことで大量の一時ファイル作成・削除を避ける。
+    /// </summary>
     /// <returns>展開先ディレクトリ</returns>
     public string ExtractSecure(string jarPath, string destDir, CancellationToken ct = default)
     {
@@ -40,7 +43,7 @@ public sealed class ArchiveExtractor
 
             var entryPath = Path.GetFullPath(Path.Combine(fullDest, entry.FullName));
 
-            // Zip Slip対策: 展開先が許可ルート配下か検証
+            // Zip Slip対策: 抽出対象外も含め、全ファイルエントリを従来通り検証する。
             if (!entryPath.StartsWith(fullDest + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                 && !entryPath.Equals(fullDest, StringComparison.OrdinalIgnoreCase))
             {
@@ -54,6 +57,10 @@ public sealed class ArchiveExtractor
                 throw new InvalidOperationException(
                     $"Zip Slip detected: entry '{entry.FullName}' contains '..'");
             }
+
+            // スキャン処理と同じ対象範囲に絞り、lang以外のclass・texture等はディスクへ展開しない。
+            if (!IsSupportedLangEntry(entry.FullName))
+                continue;
 
             var entryDir = Path.GetDirectoryName(entryPath);
             if (entryDir != null && !Directory.Exists(entryDir))
@@ -70,6 +77,27 @@ public sealed class ArchiveExtractor
     {
         using var archive = ZipFile.OpenRead(jarPath);
         return archive.Entries.Select(e => e.FullName).ToList();
+    }
+
+    private static bool IsSupportedLangEntry(string entryPath)
+    {
+        if (string.IsNullOrWhiteSpace(entryPath))
+            return false;
+
+        var normalized = entryPath.Replace('\\', '/');
+        if (normalized.EndsWith('/') || normalized.StartsWith('/'))
+            return false;
+
+        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || parts.Any(p => p is "." or ".."))
+            return false;
+
+        if (!parts[^2].Equals("lang", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var extension = Path.GetExtension(parts[^1]);
+        return extension.Equals(".json", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".lang", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>jarパスから短いハッシュを生成</summary>
