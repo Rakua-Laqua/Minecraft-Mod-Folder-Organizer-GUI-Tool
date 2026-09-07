@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [3.2.1] - 2026-09-08
+### Fixed
+- **起動時クラッシュの修正（XAML例外・バインディング競合の解消）**:
+  - `ModDeployView.xaml` において、`GradientStop.Color` に `SolidColorBrush` 型リソース（`SuccessBrush`）を指定していた型不一致例外を解消し、Color型リソース（`ColorSuccess`）に修正
+  - `ProgressBar.Value` の暗黙 TwoWay バインディングと `DeployViewModel.DeployProgressPercent`（読み取り専用）の競合による初期化時例外を解消（`Mode=OneWay` 指定および public setter への緩和）
+  - アクティビティログ枠で未定義だった `TerminalPanel` スタイルを `Theme.xaml` に新規定義（`BgDeepBrush`・枠線・角丸）
+- **タブ切り替え不具合の修正（デプロイ画面の常時表示解消）**:
+  - `MainWindow.xaml` で `ModDeployView` 自体に `DataContext="{Binding Deploy}"` を指定していたため、`Visibility` が親コンテキストの `SelectedNavigationTab` を参照できずバインディングエラー（常に Visible）となっていた構造を修正。親コンテキストを維持するラッパー `Grid` で囲むことで、STEP 1 / STEP 2 が正常に切り替わるよう修正
+- **UI表示崩れ・視認性の改善**:
+  - **TreeViewの非フォーカス時白光り解消**: アイテム選択後に別領域をクリックした際、Windows既定の `InactiveSelectionHighlightBrush`（白系）が適用されていた問題を、ダークテーマ調和の半透明アクセント色（`#1A6C63FF`）でオーバーライドして白浮きを解消
+  - **差分詳細表示ボタンのつぶれ解消**: ボタンの Height / Padding を調整して上下テキストの切れを解消し、開閉状態に応じて「▼ 差分ファイル詳細を表示」/「▲ 差分ファイル詳細を折りたたむ」と動的に切り替わるよう改善
+  - **差分テーブル（DataGrid）の白背景・白飛び改善**: `ModernDataGrid` スタイル群を適用し、Windows標準の白背景行をダークグレーに統一。ファイル名（白）、サイズ（等幅・淡青）、詳細備考（淡グレー）をくっきり視認できるよう配色を改善
+
 ## [3.2.0] - 2026-09-08
 ### Added
 - **MOD構成デプロイの実機能化（WPF/C# ネイティブ完全統合）**:

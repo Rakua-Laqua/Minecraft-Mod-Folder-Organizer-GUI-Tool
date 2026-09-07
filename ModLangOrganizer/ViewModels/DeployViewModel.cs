@@ -222,13 +222,13 @@ public sealed class DeployViewModel : ObservableObject
     public int DeployProgressPercent
     {
         get => _deployProgressPercent;
-        private set => SetProperty(ref _deployProgressPercent, value);
+        set => SetProperty(ref _deployProgressPercent, value);
     }
 
     public string DeployProgressText
     {
         get => _deployProgressText;
-        private set => SetProperty(ref _deployProgressText, value);
+        set => SetProperty(ref _deployProgressText, value);
     }
 
     public string DeployButtonText =>

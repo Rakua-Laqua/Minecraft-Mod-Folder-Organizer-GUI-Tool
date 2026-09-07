@@ -854,8 +854,9 @@
             <!-- =========================================== -->
             <!--  TAB 2: MOD DEPLOYMENT (MOD構成デプロイ)     -->
             <!-- =========================================== -->
-            <views:ModDeployView DataContext="{Binding Deploy}"
-                                 Visibility="{Binding SelectedNavigationTab, Converter={StaticResource EqToVis}, ConverterParameter=1}"/>
+            <Grid Visibility="{Binding SelectedNavigationTab, Converter={StaticResource EqToVis}, ConverterParameter=1}">
+                <views:ModDeployView DataContext="{Binding Deploy}"/>
+            </Grid>
 
         </Grid>
 

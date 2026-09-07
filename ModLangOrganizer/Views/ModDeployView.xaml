@@ -227,6 +227,13 @@
                     <TreeView Grid.Row="2" Background="Transparent" BorderThickness="0"
                               ItemsSource="{Binding ModTreeRoots}"
                               Padding="10,6">
+                        <TreeView.Resources>
+                            <!-- 非フォーカス時・フォーカス時の選択ハイライトをダークテーマに調和させ白光りを防止 -->
+                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#2A6C63FF"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F8FAFC"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#1A6C63FF"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#F8FAFC"/>
+                        </TreeView.Resources>
                         <TreeView.ItemContainerStyle>
                             <Style TargetType="TreeViewItem">
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
@@ -235,6 +242,12 @@
                                 <Setter Property="FontFamily" Value="{StaticResource UIFont}"/>
                                 <Setter Property="FontSize" Value="12.5"/>
                                 <Setter Property="Padding" Value="4,3"/>
+                                <Style.Resources>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#2A6C63FF"/>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F8FAFC"/>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#1A6C63FF"/>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#F8FAFC"/>
+                                </Style.Resources>
                             </Style>
                         </TreeView.ItemContainerStyle>
                         <TreeView.ItemTemplate>
@@ -486,11 +499,22 @@
                             </Border>
 
                             <!-- Toggle Diff Details Button -->
-                            <Button Style="{StaticResource SecondaryButton}" Height="32"
-                                    Margin="0,0,0,6" Command="{Binding ToggleDiffDetailsCommand}">
+                            <Button Style="{StaticResource SecondaryButton}" Height="36" Padding="12,6"
+                                    Margin="0,0,0,8" Command="{Binding ToggleDiffDetailsCommand}">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="▼ 差分ファイル詳細を表示 / 非表示" FontSize="11.5" FontWeight="Bold"
-                                               Foreground="{StaticResource AccentLightBrush}"/>
+                                    <TextBlock FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{StaticResource AccentLightBrush}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="▼ 差分ファイル詳細を表示"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsDiffDetailsExpanded}" Value="True">
+                                                        <Setter Property="Text" Value="▲ 差分ファイル詳細を折りたたむ"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                 </StackPanel>
                             </Button>
 
@@ -499,19 +523,25 @@
                                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                                     CornerRadius="{StaticResource RadiusMd}"
                                     Visibility="{Binding IsDiffDetailsExpanded, Converter={StaticResource BoolToVis}}">
-                                <DataGrid ItemsSource="{Binding DiffItems}" AutoGenerateColumns="False"
+                                <DataGrid Style="{StaticResource ModernDataGrid}"
+                                          ColumnHeaderStyle="{StaticResource ModernColumnHeader}"
+                                          CellStyle="{StaticResource ModernDataGridCell}"
+                                          RowStyle="{StaticResource ModernDataGridRow}"
+                                          ItemsSource="{Binding DiffItems}" AutoGenerateColumns="False"
                                           IsReadOnly="True" HeadersVisibility="Column"
                                           Background="Transparent" BorderThickness="0"
                                           GridLinesVisibility="Horizontal"
                                           HorizontalGridLinesBrush="{StaticResource BorderBrush}"
-                                          MaxHeight="180">
+                                          MaxHeight="220"
+                                          Margin="1">
                                     <DataGrid.Columns>
                                         <DataGridTemplateColumn Header="ファイル名 / 状態" Width="*">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal" Margin="6,3">
-                                                        <TextBlock Text="{Binding TypeIcon}" Margin="0,0,6,0"/>
-                                                        <TextBlock Text="{Binding FileName}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                    <StackPanel Orientation="Horizontal" Margin="8,4" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding TypeIcon}" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding FileName}" Foreground="{StaticResource TextPrimaryBrush}"
+                                                                   FontWeight="Medium" VerticalAlignment="Center"/>
                                                     </StackPanel>
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
@@ -519,17 +549,22 @@
                                         <DataGridTextColumn Header="サイズ" Binding="{Binding FormattedSize}" Width="Auto">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
-                                                    <Setter Property="Margin" Value="6,3"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                                    <Setter Property="Margin" Value="10,4"/>
                                                     <Setter Property="HorizontalAlignment" Value="Right"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+                                                    <Setter Property="FontSize" Value="11.5"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
-                                        <DataGridTextColumn Header="詳細備考" Binding="{Binding Reason}" Width="1.2*">
+                                        <DataGridTextColumn Header="詳細備考" Binding="{Binding Reason}" Width="1.4*">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-                                                    <Setter Property="Margin" Value="6,3"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                                                    <Setter Property="Margin" Value="8,4"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="FontSize" Value="11.5"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
@@ -546,7 +581,7 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <ProgressBar Grid.Row="0" Minimum="0" Maximum="100" Height="6"
-                                     Value="{Binding DeployProgressPercent}"/>
+                                     Value="{Binding DeployProgressPercent, Mode=OneWay}"/>
                         <TextBlock Grid.Row="1" Text="{Binding DeployProgressText}" FontSize="10.5"
                                    Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right" Margin="0,4,0,0"/>
                     </Grid>
@@ -556,7 +591,7 @@
                             Command="{Binding DeployCommand}" Margin="0,0,0,12">
                         <Button.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="{StaticResource SuccessBrush}" Offset="0"/>
+                                <GradientStop Color="{StaticResource ColorSuccess}" Offset="0"/>
                                 <GradientStop Color="#FF0D9488" Offset="1"/>
                             </LinearGradientBrush>
                         </Button.Background>

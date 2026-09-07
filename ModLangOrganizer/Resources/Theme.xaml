@@ -345,6 +345,17 @@
     </Style>
 
     <!-- ============================================================ -->
+    <!--  Terminal Panel Style                                        -->
+    <!-- ============================================================ -->
+    <Style x:Key="TerminalPanel" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource BgDeepBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusMd}"/>
+        <Setter Property="Padding" Value="10"/>
+    </Style>
+
+    <!-- ============================================================ -->
     <!--  Card Panel Style                                            -->
     <!-- ============================================================ -->
     <Style x:Key="Card" TargetType="Border">
