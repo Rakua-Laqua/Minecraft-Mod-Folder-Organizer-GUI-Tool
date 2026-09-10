@@ -20,6 +20,18 @@ public sealed class ModDeploymentService
         WriteIndented = true
     };
 
+    private readonly Action<string, string> replaceManifest;
+
+    public ModDeploymentService()
+        : this((source, target) => File.Replace(source, target, null, ignoreMetadataErrors: true))
+    {
+    }
+
+    internal ModDeploymentService(Action<string, string> replaceManifest)
+    {
+        this.replaceManifest = replaceManifest ?? throw new ArgumentNullException(nameof(replaceManifest));
+    }
+
     public IReadOnlyList<DeployConflictModel> DetectConflicts(IEnumerable<ModTreeNodeModel> selectedMods)
     {
         return selectedMods
@@ -66,7 +78,7 @@ public sealed class ModDeploymentService
                 continue;
             }
 
-            if (FilesAppearIdentical(mod.FullPath, target.FullPath))
+            if (FilesHaveSameContent(mod.FullPath, target.FullPath))
                 plan.ToKeep.Add(mod);
             else
                 plan.ToUpdate.Add(mod);
@@ -118,13 +130,17 @@ public sealed class ModDeploymentService
         var updatedCount = 0;
         var deletedCount = 0;
         string? backupPath = null;
+        string? transactionDirectory = null;
+        var originals = new List<(string Target, string Saved)>();
+        var installedFiles = new List<string>();
+        (string Target, string Saved)? manifestToRestore = null;
+        var preserveTransaction = false;
 
         void Log(string message) => logs.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-
             foreach (var mod in selectedMods)
             {
                 if (string.IsNullOrWhiteSpace(mod.FullPath) || !File.Exists(mod.FullPath))
@@ -132,119 +148,129 @@ public sealed class ModDeploymentService
             }
 
             var targetDirectory = NormalizeDirectory(modsDirectory);
-            if (!Directory.Exists(targetDirectory))
-            {
-                Directory.CreateDirectory(targetDirectory);
-                Log($"modsフォルダを作成しました: {targetDirectory}");
-            }
-
+            Directory.CreateDirectory(targetDirectory);
             var plan = CalculateDiff(selectedMods, targetDirectory, mode);
+            var nextManaged = mode == DeployMode.Sync
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : LoadManifest(targetDirectory);
+            nextManaged.UnionWith(selectedMods.Select(mod => mod.Name));
             var totalOperations = Math.Max(1, plan.TotalChanges);
             var currentOperation = 0;
 
             void Report(string message)
             {
-                progress?.Report(new DeployProgressModel
+                // A progress observer must not turn a committed deployment into a failure.
+                try
                 {
-                    Current = currentOperation,
-                    Total = totalOperations,
-                    Message = message
-                });
+                    progress?.Report(new DeployProgressModel
+                    {
+                        Current = currentOperation,
+                        Total = totalOperations,
+                        Message = message
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log($"進捗通知に失敗しました: {ex.Message}");
+                }
             }
 
             Report("デプロイ準備中...");
+            // Keep staging on the target volume so applying and restoring use renames.
+            transactionDirectory = Path.Combine(targetDirectory, $".modmanager-transaction-{Guid.NewGuid():N}");
+            var stagedDirectory = Path.Combine(transactionDirectory, "staged");
+            var originalDirectory = Path.Combine(transactionDirectory, "originals");
+            Directory.CreateDirectory(stagedDirectory);
+            Directory.CreateDirectory(originalDirectory);
+            foreach (var mod in plan.ToAdd.Concat(plan.ToUpdate))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Report($"コピー準備: {mod.Name}");
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Copy(mod.FullPath, Path.Combine(stagedDirectory, mod.Name));
+            }
+            SaveManifest(transactionDirectory, nextManaged);
 
             if (createBackup && (plan.ToDelete.Count > 0 || plan.ToUpdate.Count > 0))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var backupDirectory = Path.Combine(
-                    targetDirectory,
-                    BackupDirectoryName,
-                    DateTime.Now.ToString("yyyyMMdd_HHmmss"));
-
-                try
-                {
-                    Directory.CreateDirectory(backupDirectory);
-
-                    foreach (var target in plan.ToDelete)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (File.Exists(target.FullPath))
-                            File.Copy(target.FullPath, Path.Combine(backupDirectory, target.FileName), overwrite: true);
-                    }
-
-                    foreach (var mod in plan.ToUpdate)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        var currentTarget = Path.Combine(targetDirectory, mod.Name);
-                        if (File.Exists(currentTarget))
-                            File.Copy(currentTarget, Path.Combine(backupDirectory, mod.Name), overwrite: true);
-                    }
-
-                    backupPath = backupDirectory;
-                    Log($"バックアップを作成しました: {backupDirectory}");
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    throw new IOException($"バックアップの作成に失敗したため、反映を中止しました: {ex.Message}", ex);
-                }
-            }
-
-            if (mode == DeployMode.Sync)
-            {
-                foreach (var target in plan.ToDelete)
+                backupPath = Path.Combine(targetDirectory, BackupDirectoryName,
+                    $"{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(backupPath);
+                foreach (var path in plan.ToDelete.Select(item => item.FullPath)
+                    .Concat(plan.ToUpdate.Select(mod => Path.Combine(targetDirectory, mod.Name))))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    currentOperation++;
-                    Report($"削除中: {target.FileName}");
-                    File.Delete(target.FullPath);
-                    deletedCount++;
-                    Log($"削除 (未選択・管理対象のみ): {target.FileName}");
+                    File.Copy(path, Path.Combine(backupPath, Path.GetFileName(path)));
                 }
+                Log($"バックアップを作成しました: {backupPath}");
             }
 
+            void SaveOriginal(string target)
+            {
+                var saved = Path.Combine(originalDirectory, Path.GetFileName(target));
+                File.Move(target, saved);
+                originals.Add((target, saved));
+            }
+
+            void Install(ModTreeNodeModel mod)
+            {
+                var target = Path.Combine(targetDirectory, mod.Name);
+                File.Move(Path.Combine(stagedDirectory, mod.Name), target);
+                installedFiles.Add(target);
+            }
+
+            foreach (var target in plan.ToDelete)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                currentOperation++;
+                Report($"削除中: {target.FileName}");
+                cancellationToken.ThrowIfCancellationRequested();
+                SaveOriginal(target.FullPath);
+                deletedCount++;
+                Log($"削除 (未選択・管理対象のみ): {target.FileName}");
+            }
             foreach (var mod in plan.ToAdd)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 currentOperation++;
                 Report($"新規コピー: {mod.Name}");
-                File.Copy(mod.FullPath, Path.Combine(targetDirectory, mod.Name), overwrite: true);
+                cancellationToken.ThrowIfCancellationRequested();
+                Install(mod);
                 addedCount++;
                 Log($"新規コピー: {mod.Name}");
             }
-
             foreach (var mod in plan.ToUpdate)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 currentOperation++;
                 Report($"更新コピー: {mod.Name}");
-                File.Copy(mod.FullPath, Path.Combine(targetDirectory, mod.Name), overwrite: true);
+                cancellationToken.ThrowIfCancellationRequested();
+                SaveOriginal(Path.Combine(targetDirectory, mod.Name));
+                Install(mod);
                 updatedCount++;
                 Log($"更新コピー: {mod.Name}");
             }
 
-            if (plan.ToKeep.Count > 0)
-                Log($"変更なし (スキップ): {plan.ToKeep.Count} 個のMOD");
-
-            var currentManaged = LoadManifest(targetDirectory);
-            HashSet<string> nextManaged;
-            if (mode == DeployMode.Sync)
+            // The manifest is the final commit point. ReplaceFileW can remove the old
+            // destination even on failure, so keep an independent copy for rollback.
+            Report("管理情報を保存中...");
+            cancellationToken.ThrowIfCancellationRequested();
+            var manifestPath = Path.Combine(targetDirectory, ManifestFileName);
+            var stagedManifest = Path.Combine(transactionDirectory, ManifestFileName);
+            if (File.Exists(manifestPath))
             {
-                nextManaged = new HashSet<string>(selectedMods.Select(mod => mod.Name), StringComparer.OrdinalIgnoreCase);
+                var savedManifest = Path.Combine(originalDirectory, ManifestFileName);
+                File.Copy(manifestPath, savedManifest);
+                manifestToRestore = (manifestPath, savedManifest);
+                replaceManifest(stagedManifest, manifestPath);
             }
             else
-            {
-                nextManaged = new HashSet<string>(currentManaged, StringComparer.OrdinalIgnoreCase);
-                nextManaged.UnionWith(selectedMods.Select(mod => mod.Name));
-            }
+                File.Move(stagedManifest, manifestPath);
 
-            SaveManifest(targetDirectory, nextManaged);
-            Log("マニフェスト (.modmanager.json) を更新しました");
-
+            Log($"管理情報を更新しました。変更なし: {plan.ToKeep.Count} 個のMOD");
             currentOperation = totalOperations;
             Report("デプロイ完了");
-            Log($"完了: 追加 {addedCount} / 更新 {updatedCount} / 削除 {deletedCount} / 維持 {plan.ToKeep.Count}");
-
+            Log($"完了: 追加 {addedCount} / 更新 {updatedCount} / 削除 {deletedCount}");
             return new DeployExecutionResult
             {
                 Success = true,
@@ -256,9 +282,46 @@ public sealed class ModDeploymentService
                 Logs = logs
             };
         }
-        catch (OperationCanceledException)
+        catch (Exception ex)
         {
-            Log("デプロイをキャンセルしました。");
+            // Rollback ignores cancellation and attempts every restoration even if one fails.
+            var rollbackErrors = new List<string>();
+            foreach (var path in installedFiles.AsEnumerable().Reverse())
+            {
+                try { File.Delete(path); }
+                catch (Exception rollbackEx) { rollbackErrors.Add($"{path}: {rollbackEx.Message}"); }
+            }
+            foreach (var (target, saved) in originals.AsEnumerable().Reverse())
+            {
+                try { File.Move(saved, target); }
+                catch (Exception rollbackEx) { rollbackErrors.Add($"{target}: {rollbackEx.Message}"); }
+            }
+
+            if (manifestToRestore is { } manifest)
+            {
+                // Copy rather than consume the backup: failed restoration must leave
+                // the exact original bytes available for manual recovery.
+                try { File.Copy(manifest.Saved, manifest.Target, overwrite: true); }
+                catch (Exception rollbackEx) { rollbackErrors.Add($"{manifest.Target}: {rollbackEx.Message}"); }
+            }
+
+            var error = ex is OperationCanceledException
+                ? "デプロイがキャンセルされました。"
+                : ex.Message;
+            if (rollbackErrors.Count == 0)
+            {
+                addedCount = updatedCount = deletedCount = 0;
+                Log("配置先と管理情報は変更前の状態です。");
+            }
+            else
+            {
+                preserveTransaction = true;
+                backupPath = transactionDirectory;
+                error += $" 自動復元に失敗しました。復旧用データを保持しています: {transactionDirectory}";
+                foreach (var rollbackError in rollbackErrors)
+                    Log($"復元失敗: {rollbackError}");
+            }
+            Log(error);
             return new DeployExecutionResult
             {
                 Success = false,
@@ -266,23 +329,24 @@ public sealed class ModDeploymentService
                 UpdatedCount = updatedCount,
                 DeletedCount = deletedCount,
                 BackupPath = backupPath,
-                ErrorMessage = "デプロイがキャンセルされました。",
+                ErrorMessage = error,
                 Logs = logs
             };
         }
-        catch (Exception ex)
+        finally
         {
-            Log($"エラー: {ex.Message}");
-            return new DeployExecutionResult
+            if (!preserveTransaction && transactionDirectory != null)
             {
-                Success = false,
-                AddedCount = addedCount,
-                UpdatedCount = updatedCount,
-                DeletedCount = deletedCount,
-                BackupPath = backupPath,
-                ErrorMessage = ex.Message,
-                Logs = logs
-            };
+                try
+                {
+                    if (Directory.Exists(transactionDirectory))
+                        Directory.Delete(transactionDirectory, recursive: true);
+                }
+                catch (Exception ex)
+                {
+                    Log($"作業フォルダを削除できませんでした: {transactionDirectory} ({ex.Message})");
+                }
+            }
         }
     }
 
@@ -372,17 +436,11 @@ public sealed class ModDeploymentService
         }
     }
 
-    private static bool FilesAppearIdentical(string sourcePath, string targetPath)
+    private static bool FilesHaveSameContent(string sourcePath, string targetPath)
     {
         try
         {
-            var source = new FileInfo(sourcePath);
-            var target = new FileInfo(targetPath);
-            if (!source.Exists || !target.Exists)
-                return false;
-
-            var timeDifference = (source.LastWriteTimeUtc - target.LastWriteTimeUtc).Duration();
-            return source.Length == target.Length && timeDifference < TimeSpan.FromSeconds(1);
+            return new FileSystemService().IsSameContent(sourcePath, targetPath);
         }
         catch (IOException)
         {

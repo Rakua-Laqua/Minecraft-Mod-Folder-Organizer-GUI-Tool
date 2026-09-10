@@ -11,7 +11,7 @@ using ModLangOrganizer.ViewModels;
 
 namespace RegressionTests;
 
-internal static class Program
+internal static partial class Program
 {
     private const string ZeroSelectionMessage = "処理対象のModが選択されていません。";
 
@@ -33,6 +33,17 @@ internal static class Program
         failed += Run("JarPathPolicy.RelativeBoundary", TestJarPathPolicyRelativeBoundary);
         failed += Run("UIUX.NewFeatures", TestUiuxNewFeatures);
         failed += Run("R6.LargeLangFileJarArchiveUpdate", TestR6LargeLangFileJarArchiveUpdate);
+        failed += Run("Deploy.ContentIdentity", TestDeployContentIdentity);
+        failed += Run("Deploy.StagingFailure", TestDeployStagingFailure);
+        failed += Run("Deploy.CommitFailureAndRetry", TestDeployCommitFailureAndRetry);
+        failed += Run("Deploy.ManifestDeletedOnReplaceFailure", () => TestDeployManifestReplacementFailure(false));
+        failed += Run("Deploy.ManifestRenamedOnReplaceFailure", () => TestDeployManifestReplacementFailure(true));
+        failed += Run("Deploy.ManifestRecoveryData", TestDeployManifestRecoveryData);
+        failed += Run("Deploy.CancellationRollback", TestDeployCancellationRollback);
+        failed += Run("Deploy.RollbackRecoveryData", TestDeployRollbackRecoveryData);
+        failed += Run("Deploy.AddModeAndBackup", TestDeployAddModeAndBackup);
+        failed += Run("ResourcePack.AtomicDirectoryMove", TestResourcePackAtomicDirectoryMove);
+        failed += Run("ResourcePack.FolderReplacement", TestResourcePackFolderReplacement);
         Console.WriteLine(failed == 0 ? "ALL PASS" : $"FAILED {failed}");
         return failed == 0 ? 0 : 1;
     }

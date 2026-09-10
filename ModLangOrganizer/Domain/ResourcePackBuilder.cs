@@ -176,7 +176,7 @@ public sealed class ResourcePackBuilder
                 catch (Exception replaceEx)
                 {
                     // 移動失敗時はバックアップを元に戻す
-                    if (!Directory.Exists(destinationDirectory) && Directory.Exists(backupDirectory))
+                    if (Directory.Exists(backupDirectory))
                     {
                         try
                         {
@@ -317,42 +317,23 @@ public sealed class ResourcePackBuilder
         }
     }
 
-    private static void SafeMoveDirectoryWithRetry(string sourceDir, string destDir, int maxRetries = 10)
+    private static void SafeMoveDirectoryWithRetry(string source, string destination, int maxRetries = 10)
     {
-        for (var i = 0; i < maxRetries; i++)
+        for (var attempt = 0; ; attempt++)
         {
             try
             {
-                Directory.Move(sourceDir, destDir);
+                Directory.Move(source, destination);
                 return;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                if (i == maxRetries - 1)
-                {
-                    // 最終フォールバック: ファイル単位で移動して旧フォルダを削除
-                    FallbackMoveDirectory(sourceDir, destDir);
-                    return;
-                }
-                Thread.Sleep(50 * (i + 1));
+                // File-by-file fallback can split a pack across two directories on failure.
+                if (attempt >= maxRetries - 1)
+                    throw;
+                Thread.Sleep(50 * (attempt + 1));
             }
         }
-    }
-
-    private static void FallbackMoveDirectory(string sourceDir, string destDir)
-    {
-        Directory.CreateDirectory(destDir);
-        foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
-        {
-            var relative = Path.GetRelativePath(sourceDir, file);
-            var destFile = Path.Combine(destDir, relative);
-            var destFolder = Path.GetDirectoryName(destFile);
-            if (!string.IsNullOrEmpty(destFolder))
-                Directory.CreateDirectory(destFolder);
-
-            File.Move(file, destFile, overwrite: true);
-        }
-        TryDeleteDirectory(sourceDir);
     }
 
     private static void TryDeleteDirectory(string path)
